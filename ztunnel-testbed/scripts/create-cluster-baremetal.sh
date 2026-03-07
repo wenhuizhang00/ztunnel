@@ -150,6 +150,7 @@ if [[ -f /etc/kubernetes/admin.conf ]] || [[ -f /etc/kubernetes/manifests/kube-a
   log_info "Existing cluster detected. Running kubeadm reset -f..."
   sudo kubeadm reset -f 2>/dev/null || true
   sudo rm -rf /etc/cni/net.d 2>/dev/null || true
+  sleep 5
   log_ok "Reset complete. Proceeding with fresh init."
 fi
 
@@ -166,14 +167,20 @@ sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
 sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 export KUBECONFIG="$HOME/.kube/config"
 log_ok "kubeconfig ready"
+# Wait for API server to be ready (retry up to 30s)
+for i in {1..30}; do
+  if kubectl get nodes &>/dev/null; then
+    break
+  fi
+  [[ $i -eq 30 ]] && { log_error "kubectl get nodes failed after 30s. Check: export KUBECONFIG=$HOME/.kube/config"; exit 1; }
+  sleep 1
+done
 # Rename context to grimlock-cell (matches KUBE_CONTEXT default)
-if kubectl config get-contexts kubernetes-admin@kubernetes &>/dev/null; then
-  kubectl config rename-context kubernetes-admin@kubernetes grimlock-cell 2>/dev/null && log_ok "Set current-context: grimlock-cell"
+ctx=$(kubectl config current-context 2>/dev/null)
+if [[ -n "$ctx" ]] && [[ "$ctx" != "grimlock-cell" ]]; then
+  kubectl config rename-context "$ctx" grimlock-cell 2>/dev/null && log_ok "Set current-context: grimlock-cell"
 fi
-# Verify kubectl works
-if ! kubectl get nodes &>/dev/null; then
-  log_warn "kubectl get nodes failed. Ensure KUBECONFIG is set: export KUBECONFIG=$HOME/.kube/config"
-fi
+log_ok "kubectl ready"
 
 # Install CNI
 if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
@@ -211,8 +218,16 @@ else
   kubectl apply -f "${PROJECT_ROOT}/manifests/cni/calico-custom-resources.yaml"
   log_step "CALICO" "Waiting for Calico pods (sleep 15s + wait up to 180s)..."
   sleep 15
-  kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=180s 2>/dev/null || \
-    kubectl wait --for=condition=available deployment -n tigera-operator tigera-operator --timeout=180s 2>/dev/null || true
+  if kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=180s 2>/dev/null; then
+    :
+  elif kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=calico-node -n calico-system --timeout=180s 2>/dev/null; then
+    :
+  elif kubectl wait --for=condition=available deployment -n tigera-operator tigera-operator --timeout=180s 2>/dev/null; then
+    :
+  else
+    log_error "Calico did not become ready. Check: kubectl get pods -A | grep -E 'calico|tigera'"
+    exit 1
+  fi
   log_step_ok "CALICO" "Calico ready" "$(( $(date +%s) - calico_start ))s"
 fi
 
@@ -236,6 +251,12 @@ else
   echo ""
 fi
 echo ""
-log_info "On control-plane: kubectl uses ~/.kube/config (already set)."
+log_ok "Cluster ready. To use kubectl in THIS shell, run:"
+echo ""
+echo "  export KUBECONFIG=\$HOME/.kube/config"
+echo ""
+echo "  # If kubectl still fails (localhost:8080), KUBECONFIG may be set elsewhere. Run:"
+echo "  unset KUBECONFIG"
+echo "  export KUBECONFIG=\$HOME/.kube/config"
+echo ""
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
-log_info "If kubectl fails, run: unset KUBECONFIG  (if it pointed to a non-existent file)"

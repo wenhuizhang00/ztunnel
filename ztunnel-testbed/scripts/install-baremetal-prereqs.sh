@@ -87,6 +87,7 @@ K8S_VERSION="${K8S_VERSION:-1.30.0}"
 K8S_MAJOR_MINOR="${K8S_VERSION%.*}"  # 1.30.0 -> 1.30
 
 log_step "K8S-REPO" "Adding Kubernetes apt repository (v${K8S_MAJOR_MINOR}) - network fetch..."
+sudo mkdir -p /etc/apt/keyrings
 curl -fsSL "https://pkgs.k8s.io/core:/stable:/v${K8S_MAJOR_MINOR}/deb/Release.key" | sudo gpg --dearmor -o "${K8S_APT_KEY}"
 echo "deb [signed-by=${K8S_APT_KEY}] https://pkgs.k8s.io/core:/stable:/v${K8S_MAJOR_MINOR}/deb/ /" | sudo tee "${K8S_LIST}"
 
@@ -107,7 +108,7 @@ if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml 2>/dev/null; the
   sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 fi
 # Use pause:3.9 to match kubeadm 1.30 (avoids "sandbox image inconsistent" warning)
-sudo sed -i 's|registry.k8s.io/pause:3.8|registry.k8s.io/pause:3.9|g' /etc/containerd/config.toml 2>/dev/null || true
+sudo sed -i 's|registry.k8s.io/pause:3\.[678]|registry.k8s.io/pause:3.9|g' /etc/containerd/config.toml 2>/dev/null || true
 
 # Configure containerd to use HTTP proxy for registry.k8s.io pulls (required behind corporate proxy)
 CONTAINERD_PROXY="${CONTAINERD_HTTP_PROXY:-${HTTP_PROXY:-}}"
@@ -119,7 +120,7 @@ if [[ -n "$CONTAINERD_PROXY" ]]; then
 [Service]
 Environment="HTTP_PROXY=${CONTAINERD_PROXY}"
 Environment="HTTPS_PROXY=${CONTAINERD_PROXY}"
-Environment="NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+Environment="NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16}"
 EOF
   sudo systemctl daemon-reload
 fi
