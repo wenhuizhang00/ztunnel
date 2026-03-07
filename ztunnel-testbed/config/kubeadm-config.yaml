@@ -1,0 +1,31 @@
+# =============================================================================
+# kubeadm ClusterConfiguration - Bare Metal
+# =============================================================================
+# Usage: kubeadm init --config config/kubeadm-config.yaml
+# =============================================================================
+
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+
+kubernetesVersion: "1.30.0"
+networking:
+  podSubnet: "192.168.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
+
+# controlPlaneEndpoint: set via CONTROL_PLANE_ENDPOINT for HA, or leave for single-node
+# controlPlaneEndpoint: "cp.example.com:6443"
+
+controllerManager:
+  extraArgs:
+    bind-address: 0.0.0.0
+scheduler:
+  extraArgs:
+    bind-address: 0.0.0.0
+
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  criSocket: unix:///var/run/containerd/containerd.sock
+  # Alternative for dockerd: unix:///var/run/dockershim.sock
+  # Alternative for docker with containerd: unix:///run/containerd/containerd.sock

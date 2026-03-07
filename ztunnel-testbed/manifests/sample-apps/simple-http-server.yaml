@@ -1,0 +1,81 @@
+# =============================================================================
+# Simple HTTP server - used for Pod-to-Pod and Service testing
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-apps
+  labels:
+    istio.io/dataplane-mode: ambient
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-echo
+  namespace: sample-apps
+  labels:
+    app: http-echo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: http-echo
+  template:
+    metadata:
+      labels:
+        app: http-echo
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:latest
+          args:
+            - "-text=hello-from-pod"
+            - "-listen=:8080"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-echo
+  namespace: sample-apps
+spec:
+  selector:
+    app: http-echo
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+---
+# Client pod for testing (curl available)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-client
+  namespace: sample-apps
+  labels:
+    app: curl-client
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: curl-client
+  template:
+    metadata:
+      labels:
+        app: curl-client
+    spec:
+      containers:
+        - name: curl
+          image: curlimages/curl:latest
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

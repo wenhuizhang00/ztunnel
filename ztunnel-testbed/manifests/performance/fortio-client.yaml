@@ -1,0 +1,31 @@
+# =============================================================================
+# Fortio client for performance testing (ambient namespace)
+# =============================================================================
+# Can target both http-echo.sample-apps (ambient) and http-echo.sample-apps-baseline (baseline)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio
+  namespace: sample-apps
+  labels:
+    app: fortio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio
+  template:
+    metadata:
+      labels:
+        app: fortio
+    spec:
+      containers:
+        - name: fortio
+          image: fortio/fortio:latest
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi

@@ -1,0 +1,81 @@
+# =============================================================================
+# Baseline (non-ambient) HTTP server - for performance comparison
+# =============================================================================
+# No istio.io/dataplane-mode=ambient label - traffic does NOT go through ztunnel
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-apps-baseline
+  # No ambient label - intentionally outside mesh
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-echo
+  namespace: sample-apps-baseline
+  labels:
+    app: http-echo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: http-echo
+  template:
+    metadata:
+      labels:
+        app: http-echo
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:latest
+          args:
+            - "-text=hello-from-baseline"
+            - "-listen=:8080"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-echo
+  namespace: sample-apps-baseline
+spec:
+  selector:
+    app: http-echo
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-client
+  namespace: sample-apps-baseline
+  labels:
+    app: curl-client
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: curl-client
+  template:
+    metadata:
+      labels:
+        app: curl-client
+    spec:
+      containers:
+        - name: curl
+          image: curlimages/curl:latest
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

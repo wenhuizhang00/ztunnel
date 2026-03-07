@@ -1,0 +1,12 @@
+# Local config overrides
+config/local.sh
+
+# Cache and downloads
+.cache/
+bin/
+
+# Benchmark results
+.bench-results/
+
+# OS
+.DS_Store

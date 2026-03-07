@@ -1,0 +1,15 @@
+# =============================================================================
+# Local overrides - copy to local.sh and customize
+# =============================================================================
+# cp config/local.sh.example config/local.sh
+# =============================================================================
+
+# ISTIO_VERSION="1.29.0"
+# GATEWAY_API_VERSION="v1.4.0"
+
+# KUBE_CONTEXT="my-context"   # Optional: kubectl context to use
+
+# ISTIO_PLATFORM="gke"       # Optional: gke, eks, k3d, minikube for platform-specific Istio install
+
+# CNI_PROVIDER="cilium"      # For bare metal: calico (default) | cilium. Cilium uses CLI, no Helm.
+# CILIUM_VERSION="1.16.0"   # When using Cilium

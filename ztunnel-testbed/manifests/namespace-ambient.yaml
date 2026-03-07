@@ -1,0 +1,19 @@
+# =============================================================================
+# Sample namespace with ambient mesh label
+# =============================================================================
+# Apply this label to enable ambient mesh for workloads in the namespace.
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+  labels:
+    istio.io/dataplane-mode: ambient
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sample-apps
+  labels:
+    istio.io/dataplane-mode: ambient
