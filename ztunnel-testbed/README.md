@@ -505,11 +505,22 @@ Demo benchmarks for relative comparison; not for production capacity planning.
 
 ## Cleanup
 
+Interactive cleanup with four levels:
+
 ```bash
-make clean
+make clean                   # interactive menu
+make clean CLEAN=apps        # remove sample apps (namespaces grimlock, grimlock-baseline)
+make clean CLEAN=istio       # remove apps + Istio + Gateway API CRDs
+make clean CLEAN=full        # all above + local cache (.cache, bin, .bench-results)
+make clean CLEAN=nuclear     # all above + destroy Kubernetes cluster (kubeadm reset)
 ```
 
-Uninstalls Istio and removes sample apps. Does NOT delete the cluster. Use `REMOVE_CACHE=1` for non-interactive cache removal.
+| Level | What it removes |
+|-------|----------------|
+| **apps** | Sample app namespaces, rendered manifests |
+| **istio** | Apps + Istio (purge) + Gateway API CRDs + istio-system namespace |
+| **full** | Istio + local cache, binaries, bench results |
+| **nuclear** | Full + kubeadm reset, kubeconfig, kubectl wrapper, bashrc entries, sudoers drop-in |
 
 ## Troubleshooting
 

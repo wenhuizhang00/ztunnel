@@ -88,8 +88,14 @@ bench-quick:
 inspect:
 	./scripts/ztunnel-inspect.sh all
 
+# Cleanup: interactive menu or specify level
+#   make clean                  # interactive: pick cleanup level
+#   make clean CLEAN=apps       # remove sample apps only
+#   make clean CLEAN=istio      # remove apps + Istio + CRDs
+#   make clean CLEAN=full       # all above + local cache/binaries
+#   make clean CLEAN=nuclear    # all above + destroy k8s cluster
 clean:
-	./scripts/cleanup.sh
+	./scripts/cleanup.sh $(CLEAN)
 
 help:
 	@echo "ztunnel-testbed targets:"
@@ -122,4 +128,8 @@ help:
 	@echo "    make build-images       - Build local http-echo, curl-client, fortio images"
 	@echo "    make load-images        - Load local images into kind/minikube"
 	@echo "    make inspect            - Inspect ztunnel state"
-	@echo "    make clean              - Uninstall Istio, remove sample apps"
+	@echo "    make clean              - Interactive cleanup menu"
+	@echo "    make clean CLEAN=apps   - Remove sample apps only"
+	@echo "    make clean CLEAN=istio  - Remove apps + Istio + CRDs"
+	@echo "    make clean CLEAN=full   - All above + local cache"
+	@echo "    make clean CLEAN=nuclear - All above + destroy cluster"

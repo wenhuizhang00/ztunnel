@@ -5,7 +5,6 @@
 # Sourced by bench-throughput.sh, bench-latency.sh, and run-bench.sh
 # =============================================================================
 
-_BENCH_FIRST_RUN=1
 MODE="${MODE:-both}"
 CONCURRENCY="${CONCURRENCY:-4}"
 DURATION="${DURATION:-20s}"
@@ -114,14 +113,6 @@ run_and_report() {
     return
   fi
 
-  # Show raw percentile lines for the first test (debug: helps verify parsing)
-  if [[ "${_BENCH_FIRST_RUN:-1}" == "1" ]]; then
-    _BENCH_FIRST_RUN=0
-    echo "  [debug] Raw fortio percentile lines:" >&2
-    echo "$raw" | grep -E "target|All done|Aggregated" | head -8 | while IFS= read -r line; do
-      echo "    $line" >&2
-    done
-  fi
 
   local qps avg p50 p90 p99 p999 ok_pct
 
