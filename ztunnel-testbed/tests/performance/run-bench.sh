@@ -66,10 +66,10 @@ if [[ -z "$BASELINE_CLIENT" ]] && [[ "$MODE" != "ambient" ]]; then
   exit 1
 fi
 
-# Verify fortio binary
+# Verify fortio binary (no shell in distroless image -- call fortio directly)
 verify_fortio() {
   local ns="$1" pod="$2"
-  if ! kubectl exec -n "$ns" "$pod" -c fortio -- sh -c "fortio version" &>/dev/null; then
+  if ! kubectl exec -n "$ns" "$pod" -c fortio -- fortio version &>/dev/null; then
     log_error "fortio binary not working in $pod ($ns)"
     exit 1
   fi
@@ -77,14 +77,15 @@ verify_fortio() {
 
 [[ -n "$AMBIENT_CLIENT" ]] && verify_fortio "$APP_NAMESPACE" "$AMBIENT_CLIENT"
 [[ -n "$BASELINE_CLIENT" ]] && verify_fortio "$APP_NAMESPACE_BASELINE" "$BASELINE_CLIENT"
-log_ok "fortio clients ready"
+FORTIO_VER=$(kubectl exec -n "$APP_NAMESPACE" "${AMBIENT_CLIENT:-$BASELINE_CLIENT}" -c fortio -- fortio version 2>/dev/null || echo "unknown")
+log_ok "fortio clients ready (version: $FORTIO_VER)"
 
 # Verify connectivity
 verify_conn() {
   local ns="$1" pod="$2" url="$3"
-  if ! kubectl exec -n "$ns" "$pod" -c fortio -- sh -c "fortio curl '$url'" &>/dev/null; then
+  if ! kubectl exec -n "$ns" "$pod" -c fortio -- fortio curl "$url" &>/dev/null; then
     log_error "Cannot reach $url from $pod"
-    kubectl exec -n "$ns" "$pod" -c fortio -- sh -c "fortio curl '$url'" 2>&1 | tail -3 || true
+    kubectl exec -n "$ns" "$pod" -c fortio -- fortio curl "$url" 2>&1 | tail -3 || true
     exit 1
   fi
 }
@@ -98,41 +99,41 @@ fi
 log_ok "Connectivity OK"
 
 # --- Run fortio and parse results ---
+# Note: fortio/fortio is a distroless image (no shell, no cat, no tee).
+# We capture output directly from kubectl exec's stdout/stderr.
 run_and_report() {
   local label="$1" ns="$2" client_pod="$3" url="$4" conc="$5"
   shift 5
-  local extra_args="$*"
 
-  # Build command
-  local cmd="fortio load -c $conc -qps 0"
+  # Build args array for kubectl exec -- fortio load ...
+  local -a load_args=(fortio load -c "$conc" -qps 0)
   if [[ "$REQUESTS" -gt 0 ]]; then
-    cmd+=" -n $REQUESTS"
+    load_args+=(-n "$REQUESTS")
   else
-    cmd+=" -t $DURATION"
+    load_args+=(-t "$DURATION")
   fi
-  [[ -n "$extra_args" ]] && cmd+=" $extra_args"
-  cmd+=" '$url'"
+  # Append extra args (e.g. -payload-size 64 -content-type application/octet-stream)
+  for arg in "$@"; do
+    load_args+=($arg)
+  done
+  load_args+=("$url")
 
-  # Run inside container, save output to file
-  kubectl exec -n "$ns" "$client_pod" -c fortio -- \
-    sh -c "$cmd > /tmp/fortio-out.txt 2>&1" || true
-
-  # Read output
+  # Run fortio and capture stdout+stderr directly from kubectl exec
   local raw
-  raw=$(kubectl exec -n "$ns" "$client_pod" -c fortio -- cat /tmp/fortio-out.txt 2>/dev/null) || true
+  raw=$(kubectl exec -n "$ns" "$client_pod" -c fortio -- "${load_args[@]}" 2>&1) || true
 
   if [[ -z "$raw" ]] || ! echo "$raw" | grep -q "All done"; then
     local err_msg
-    err_msg=$(echo "$raw" | head -3 | tr '\n' ' ')
-    printf "  %-28s  %10s  %8s  %8s  %8s  %8s  %8s  %s\n" "$label" "ERROR" "-" "-" "-" "-" "-" "${err_msg:0:40}"
+    err_msg=$(echo "$raw" | tail -3 | tr '\n' ' ')
+    printf "  %-28s  %10s  %8s  %8s  %8s  %8s  %8s  %s\n" "$label" "ERROR" "-" "-" "-" "-" "-" "${err_msg:0:50}"
     return
   fi
 
-  # Parse: "All done 12345 calls ... 0.123 avg, 9876.5 qps"
+  # Parse fortio text output
   local qps avg p50 p90 p99 p999 ok_pct
 
   qps=$(echo "$raw" | grep "All done" | grep -oE '[0-9]+\.[0-9]+ qps' | grep -oE '[0-9]+\.[0-9]+' || echo "N/A")
-  avg=$(echo "$raw" | grep "All done" | grep -oE '[0-9]+\.[0-9e-]+ avg' | grep -oE '[0-9]+\.[0-9e-]+' || echo "N/A")
+  avg=$(echo "$raw" | grep "All done" | grep -oE '[0-9]+\.[0-9e.-]+ avg' | grep -oE '[0-9]+\.[0-9e.-]+' || echo "N/A")
   p50=$(echo "$raw" | grep "target 50%" | awk '{print $NF}' || echo "N/A")
   p90=$(echo "$raw" | grep "target 90%" | awk '{print $NF}' || echo "N/A")
   p99=$(echo "$raw" | grep "target 99%" | grep -v "99.9" | awk '{print $NF}' || echo "N/A")
@@ -185,7 +186,7 @@ bench_payload_sizes() {
   for size in "${SIZES[@]}"; do
     log_step "BENCH" "[$mode ${size}B] POST payload=${size}B, c=$CONCURRENCY..." >&2
     run_and_report "${size}B POST" "$ns" "$client" "$url" "$CONCURRENCY" \
-      "-payload-size $size -content-type application/octet-stream"
+      -payload-size "$size" -content-type "application/octet-stream"
   done
 }
 
@@ -204,11 +205,11 @@ bench_http_app() {
   run_and_report "HTTP GET" "$ns" "$client" "$url" "$CONCURRENCY"
 
   log_step "BENCH" "[$mode] HTTP GET (no keepalive)..." >&2
-  run_and_report "GET (no keepalive)" "$ns" "$client" "$url" "$CONCURRENCY" "-keepalive=false"
+  run_and_report "GET (no keepalive)" "$ns" "$client" "$url" "$CONCURRENCY" -keepalive=false
 
   log_step "BENCH" "[$mode] HTTP POST 1KB..." >&2
   run_and_report "POST 1KB" "$ns" "$client" "$url" "$CONCURRENCY" \
-    "-payload-size 1024 -content-type application/json"
+    -payload-size 1024 -content-type "application/json"
 
   log_step "BENCH" "[$mode] HTTP GET burst c=32..." >&2
   run_and_report "GET burst (c=32)" "$ns" "$client" "$url" 32
