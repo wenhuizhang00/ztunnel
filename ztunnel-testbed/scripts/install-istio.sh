@@ -22,9 +22,9 @@ case "$(uname -s)" in
   *) TARGET_OS=linux ;;
 esac
 case "$(uname -m)" in
-  x86_64)  TARGET_ARCH=x86_64 ;;
+  x86_64)  TARGET_ARCH=amd64 ;;
   arm64|aarch64) TARGET_ARCH=arm64 ;;
-  *) TARGET_ARCH=x86_64 ;;
+  *) TARGET_ARCH=amd64 ;;
 esac
 
 # CHOKE: istioctl download (network - may be slow behind proxy)
