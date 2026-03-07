@@ -63,8 +63,8 @@ spec:
       name: grpc
 ---
 # --- Ambient namespace: fortio-client ---
-# Runs fortio server on port 8081 (just to keep the container alive).
-# The fortio binary is then available for kubectl exec to run load tests.
+# Runs fortio server (keeps container alive; fortio binary available for kubectl exec).
+# Service selects app=fortio-server only, so this pod won't receive external traffic.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -85,7 +85,7 @@ spec:
       containers:
         - name: fortio
           image: ${FORTIO_IMAGE}
-          args: ["server", "-http-port", "8081"]
+          args: ["server"]
           resources:
             requests:
               cpu: 500m
@@ -161,7 +161,7 @@ spec:
       containers:
         - name: fortio
           image: ${FORTIO_IMAGE}
-          args: ["server", "-http-port", "8081"]
+          args: ["server"]
           resources:
             requests:
               cpu: 500m
