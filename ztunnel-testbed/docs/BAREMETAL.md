@@ -67,6 +67,13 @@ cd ztunnel-testbed
 ./scripts/create-cluster-baremetal.sh
 ```
 
+If `kubeadm init` fails (e.g. "experimental API" error or partial run), reset and retry:
+
+```bash
+sudo kubeadm reset -f
+./scripts/create-cluster-baremetal.sh
+```
+
 The script will:
 - Run `kubeadm init`
 - Configure kubeconfig

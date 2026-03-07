@@ -1,10 +1,11 @@
 # =============================================================================
 # kubeadm ClusterConfiguration - Bare Metal (template)
 # =============================================================================
-# Variables: K8S_VERSION, POD_NETWORK_CIDR, CONTROL_PLANE_ENDPOINT, CRI_SOCKET
+# Variables: K8S_VERSION, KUBEADM_API_VERSION, POD_NETWORK_CIDR, CRI_SOCKET
+# KUBEADM_API_VERSION: v1beta3 (K8s 1.30) or v1beta4 (K8s 1.31+)
 # =============================================================================
 
-apiVersion: kubeadm.k8s.io/v1beta4
+apiVersion: kubeadm.k8s.io/${KUBEADM_API_VERSION}
 kind: ClusterConfiguration
 
 kubernetesVersion: "${K8S_VERSION}"
@@ -21,7 +22,7 @@ scheduler:
     bind-address: 0.0.0.0
 
 ---
-apiVersion: kubeadm.k8s.io/v1beta4
+apiVersion: kubeadm.k8s.io/${KUBEADM_API_VERSION}
 kind: InitConfiguration
 nodeRegistration:
   criSocket: "${CRI_SOCKET}"

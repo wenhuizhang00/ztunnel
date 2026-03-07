@@ -82,14 +82,17 @@ fi
 
 log_ok "All prerequisites satisfied"
 
-# Generate kubeadm config
+# Generate kubeadm config (remove stale cache)
 KUBEADM_CONFIG="${PROJECT_ROOT}/.cache/kubeadm-config.yaml"
 mkdir -p "${PROJECT_ROOT}/.cache"
+rm -f "$KUBEADM_CONFIG"
 export K8S_VERSION POD_NETWORK_CIDR CRI_SOCKET
 export CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT:-}"
 if [[ -f "${PROJECT_ROOT}/config/kubeadm-config.yaml.template" ]]; then
-  export K8S_VERSION POD_NETWORK_CIDR CRI_SOCKET
-  envsubst '$K8S_VERSION,$POD_NETWORK_CIDR,$CRI_SOCKET' \
+  # v1beta3: stable for K8s 1.30. v1beta4 requires K8s 1.31+ and --allow-experimental-api
+  export KUBEADM_API_VERSION="v1beta3"
+  export K8S_VERSION POD_NETWORK_CIDR CRI_SOCKET KUBEADM_API_VERSION
+  envsubst '$K8S_VERSION,$POD_NETWORK_CIDR,$CRI_SOCKET,$KUBEADM_API_VERSION' \
     < "${PROJECT_ROOT}/config/kubeadm-config.yaml.template" \
     > "$KUBEADM_CONFIG"
   # Set controlPlaneEndpoint for HA; edit template for custom value

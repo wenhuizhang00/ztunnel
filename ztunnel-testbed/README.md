@@ -266,6 +266,15 @@ sudo ./scripts/install-baremetal-prereqs.sh
 
 See [Bare Metal Deployment](docs/BAREMETAL.md) for full prerequisites.
 
+### kubeadm init failed (experimental API, etc.)
+
+If a previous `kubeadm init` ran partially, reset first:
+
+```bash
+sudo kubeadm reset -f
+make create-baremetal
+```
+
 ### Cannot reach cluster
 
 Create a cluster first: `make create-baremetal` (bare metal), or use minikube/kind. Ensure `kubectl cluster-info` succeeds.

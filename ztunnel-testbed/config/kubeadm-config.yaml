@@ -4,7 +4,7 @@
 # Usage: kubeadm init --config config/kubeadm-config.yaml
 # =============================================================================
 
-apiVersion: kubeadm.k8s.io/v1beta4
+apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 
 kubernetesVersion: "1.30.0"
@@ -23,7 +23,7 @@ scheduler:
     bind-address: 0.0.0.0
 
 ---
-apiVersion: kubeadm.k8s.io/v1beta4
+apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 nodeRegistration:
   criSocket: unix:///var/run/containerd/containerd.sock
