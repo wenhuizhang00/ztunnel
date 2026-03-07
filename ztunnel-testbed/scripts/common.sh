@@ -68,10 +68,16 @@ ensure_kubectl_context() {
   if ! kubectl cluster-info &>/dev/null; then
     log_error "Cannot reach Kubernetes cluster."
     echo ""
+    # localhost:8080 = kubectl using empty/wrong config (KUBECONFIG to non-existent file)
+    if kubectl config view --minify 2>/dev/null | grep -q 'server:.*8080'; then
+      echo "  kubectl is using localhost:8080 (invalid). Likely KUBECONFIG points to a non-existent file."
+      echo "  Fix:  unset KUBECONFIG   (or set to valid path, e.g. \$HOME/.kube/config)"
+      echo ""
+    fi
     if [[ -n "${KUBECONFIG:-}" ]]; then
       if [[ ! -f "${KUBECONFIG}" ]]; then
         echo "  KUBECONFIG=${KUBECONFIG} points to a file that does not exist."
-        echo "  Create a cluster first, then copy kubeconfig from the control-plane."
+        echo "  Fix:  unset KUBECONFIG   or copy kubeconfig from control-plane first."
       else
         echo "  KUBECONFIG=${KUBECONFIG} exists but cluster is unreachable (API server down, wrong host, or firewall)."
       fi

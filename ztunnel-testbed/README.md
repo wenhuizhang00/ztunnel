@@ -69,8 +69,11 @@ make create-baremetal
 
 # 2. On each worker: run the kubeadm join command printed above
 
-# 3. Copy kubeconfig to workstation, then:
-export KUBECONFIG=~/.kube/ztunnel-baremetal-config
+# 3. Use the cluster:
+#    - On control-plane: kubectl uses ~/.kube/config (default). Do NOT set KUBECONFIG to ztunnel-baremetal-config.
+#    - On workstation: first copy kubeconfig, then set KUBECONFIG:
+#      scp gsadmin@<control-plane>:~/.kube/config ~/.kube/ztunnel-baremetal-config
+#      export KUBECONFIG=~/.kube/ztunnel-baremetal-config
 make setup
 make test-func
 ```
@@ -337,6 +340,22 @@ If a previous `kubeadm init` ran partially, reset first:
 sudo kubeadm reset -f
 make create-baremetal
 ```
+
+### kubectl connects to localhost:8080 (connection refused)
+
+This means kubectl is not using a valid kubeconfig. Common causes:
+
+1. **KUBECONFIG points to a non-existent file** (e.g. `~/.kube/ztunnel-baremetal-config` before you copied it):
+   ```bash
+   unset KUBECONFIG
+   ```
+2. **On control-plane**: kubeconfig is at `~/.kube/config`. If missing, run:
+   ```bash
+   mkdir -p ~/.kube
+   sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config
+   sudo chown $(id -u):$(id -g) ~/.kube/config
+   ```
+3. **Check shell profile**: `grep KUBECONFIG ~/.bashrc ~/.profile` — remove or fix if it points to a missing path.
 
 ### Cannot reach cluster
 

@@ -95,21 +95,25 @@ Or use the script:
 ./scripts/baremetal/join-worker.sh kubeadm join ...
 ```
 
-### 3. Copy kubeconfig to workstation
+### 3. Kubeconfig: control-plane vs workstation
 
-On control-plane:
+**On control-plane** (where you ran `make create-baremetal`):
+- Kubeconfig is at `~/.kube/config` (set by the script).
+- Use the default; do **not** set `KUBECONFIG` to `ztunnel-baremetal-config` (that file does not exist on the control-plane).
+- Verify: `kubectl get nodes`
 
-```bash
-scp ~/.kube/config user@your-laptop:~/.kube/ztunnel-baremetal-config
-```
+**On workstation** (laptop, CI, etc.):
+- First copy the kubeconfig from the control-plane:
+  ```bash
+  scp gsadmin@<control-plane-ip>:~/.kube/config ~/.kube/ztunnel-baremetal-config
+  ```
+- Then set KUBECONFIG:
+  ```bash
+  export KUBECONFIG=~/.kube/ztunnel-baremetal-config
+  kubectl get nodes
+  ```
 
-On workstation:
-
-```bash
-export KUBECONFIG=~/.kube/ztunnel-baremetal-config
-# or
-export KUBE_CONTEXT=kubernetes-admin@kubernetes  # if specifying context
-```
+**If kubectl shows "connection to localhost:8080 refused"**: `KUBECONFIG` likely points to a non-existent file. Run `unset KUBECONFIG` and use `~/.kube/config` (control-plane) or copy the file first (workstation).
 
 ## Proxy (corporate / behind firewall)
 

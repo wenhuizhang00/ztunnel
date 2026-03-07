@@ -166,6 +166,10 @@ sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
 sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 export KUBECONFIG="$HOME/.kube/config"
 log_ok "kubeconfig ready"
+# Verify kubectl works (in new shells, use: export KUBECONFIG=$HOME/.kube/config or unset KUBECONFIG if it pointed to a missing file)
+if ! kubectl get nodes &>/dev/null; then
+  log_warn "kubectl get nodes failed. Ensure KUBECONFIG is set: export KUBECONFIG=$HOME/.kube/config"
+fi
 
 # Install CNI
 if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
@@ -227,4 +231,7 @@ else
   echo "  kubeadm token create --print-join-command"
   echo ""
 fi
-log_info "Copy kubeconfig to workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/ztunnel-baremetal-config"
+echo ""
+log_info "On control-plane: kubectl uses ~/.kube/config (already set)."
+log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/ztunnel-baremetal-config"
+log_info "If kubectl fails, run: unset KUBECONFIG  (if it pointed to a non-existent file)"
