@@ -367,3 +367,5 @@ echo ""
 echo "  # All new shells and 'sudo kubectl' work automatically."
 echo ""
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
+
+exit 0
