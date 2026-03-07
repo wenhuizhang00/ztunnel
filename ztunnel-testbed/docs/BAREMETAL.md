@@ -123,6 +123,18 @@ make create-baremetal
 
 The script auto-adds node IP (from `hostname -I`) and pod/service CIDRs; extend in `config/local.sh` for multiple nodes.
 
+### Containerd proxy (required for registry.k8s.io image pulls)
+
+Containerd runs as a systemd service and does **not** inherit the shell's proxy. Set before `create-baremetal`:
+
+```bash
+export HTTP_PROXY="http://your-proxy:3128"
+export HTTPS_PROXY="$HTTP_PROXY"
+make create-baremetal
+```
+
+The script configures containerd's systemd drop-in and restarts it when `HTTP_PROXY` is set. If image pulls still timeout, ensure the proxy allows `registry.k8s.io` and that `NO_PROXY` excludes only internal IPs (not registry.k8s.io).
+
 ## Configuration
 
 | Variable | Description | Default |

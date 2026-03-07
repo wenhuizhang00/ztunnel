@@ -21,9 +21,14 @@
 # USE_LOCAL_IMAGES=1
 # IMAGE_REGISTRY="localhost/ztunnel-testbed"  # Or your registry
 
-# Proxy (when behind corporate proxy - add CIDRs so kubeadm bypasses proxy)
-# NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
-# Or extend: NO_PROXY="${NO_PROXY},10.200.0.0/16"  # control-plane/node IPs
+# Proxy (when behind corporate proxy)
+# For kubeadm: exclude cluster CIDRs so internal traffic bypasses proxy
+# NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+# For containerd image pulls: MUST use proxy to reach registry.k8s.io
+# Set before install-prereqs AND before create-baremetal:
+#   export HTTP_PROXY="http://proxy.example.com:3128"
+#   export HTTPS_PROXY="$HTTP_PROXY"
+# Or in config/local.sh: CONTAINERD_HTTP_PROXY="http://dcproxy.simulprod.com:3128"
 
 # Bare metal (when using make create-baremetal)
 # CNI_PROVIDER="calico"       # calico (default) | cilium

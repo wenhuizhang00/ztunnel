@@ -314,6 +314,21 @@ The script auto-adds node IP and CIDRs; extend in `config/local.sh` if needed.
 
 **Note**: `ping http://proxy.example.com:3128` won't work (ping uses ICMP, not HTTP). Use `curl -x http://proxy:3128 -I https://example.com` to test proxy.
 
+### Image pull timeout (registry.k8s.io dial tcp i/o timeout)
+
+Containerd does **not** use the shell's `HTTP_PROXY`. Configure proxy for containerd before `make create-baremetal`:
+
+```bash
+export HTTP_PROXY="http://dcproxy.simulprod.com:3128"
+export HTTPS_PROXY="$HTTP_PROXY"
+export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+# If containerd was already installed without proxy, the script will add it and restart
+make create-baremetal
+```
+
+Or set in `config/local.sh` and `CONTAINERD_HTTP_PROXY` for the install-prereqs step.
+
 ### kubeadm init failed (experimental API, etc.)
 
 If a previous `kubeadm init` ran partially, reset first:

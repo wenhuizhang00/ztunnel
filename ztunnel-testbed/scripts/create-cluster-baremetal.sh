@@ -122,6 +122,29 @@ NODE_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 export no_proxy="${NO_PROXY}"
 log_info "NO_PROXY includes cluster CIDRs and node IP for proxy bypass"
 
+# Containerd needs proxy for registry.k8s.io - configure if HTTP_PROXY set
+CONTAINERD_PROXY="${CONTAINERD_HTTP_PROXY:-${HTTP_PROXY:-${https_proxy:-}}}"
+[[ -z "$CONTAINERD_PROXY" ]] && CONTAINERD_PROXY="${HTTPS_PROXY:-${http_proxy:-}}"
+if [[ -n "$CONTAINERD_PROXY" ]]; then
+  PROXY_CONF="/etc/systemd/system/containerd.service.d/http-proxy.conf"
+  if [[ ! -f "$PROXY_CONF" ]] || ! grep -q "HTTP_PROXY" "$PROXY_CONF" 2>/dev/null; then
+    log_info "Configuring containerd proxy for registry.k8s.io pulls..."
+    sudo mkdir -p "$(dirname "$PROXY_CONF")"
+    sudo tee "$PROXY_CONF" >/dev/null <<EOF
+[Service]
+Environment="HTTP_PROXY=${CONTAINERD_PROXY}"
+Environment="HTTPS_PROXY=${CONTAINERD_PROXY}"
+Environment="NO_PROXY=${NO_PROXY}"
+EOF
+    sudo systemctl daemon-reload
+    sudo systemctl restart containerd
+    sleep 3
+    log_ok "Containerd restarted with proxy"
+  fi
+else
+  log_warn "No HTTP_PROXY/HTTPS_PROXY. If behind corporate proxy, image pulls may time out. Set: export HTTP_PROXY=http://proxy:3128"
+fi
+
 # CHOKE: kubeadm init (preflight, image pull from registry.k8s.io, etcd, control-plane)
 log_step "KUBEADM" "Running kubeadm init (preflight + image pull + etcd + control-plane - may take 2-5 min)..."
 kubeadm_start=$(date +%s)

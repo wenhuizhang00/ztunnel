@@ -106,6 +106,24 @@ if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml 2>/dev/null; the
   containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
   sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 fi
+# Use pause:3.9 to match kubeadm 1.30 (avoids "sandbox image inconsistent" warning)
+sudo sed -i 's|registry.k8s.io/pause:3.8|registry.k8s.io/pause:3.9|g' /etc/containerd/config.toml 2>/dev/null || true
+
+# Configure containerd to use HTTP proxy for registry.k8s.io pulls (required behind corporate proxy)
+CONTAINERD_PROXY="${CONTAINERD_HTTP_PROXY:-${HTTP_PROXY:-}}"
+[[ -z "$CONTAINERD_PROXY" ]] && CONTAINERD_PROXY="${HTTPS_PROXY:-}"
+if [[ -n "$CONTAINERD_PROXY" ]]; then
+  log_step "CONTAINERD" "Configuring proxy for image pulls: $CONTAINERD_PROXY"
+  sudo mkdir -p /etc/systemd/system/containerd.service.d
+  sudo tee /etc/systemd/system/containerd.service.d/http-proxy.conf >/dev/null <<EOF
+[Service]
+Environment="HTTP_PROXY=${CONTAINERD_PROXY}"
+Environment="HTTPS_PROXY=${CONTAINERD_PROXY}"
+Environment="NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+EOF
+  sudo systemctl daemon-reload
+fi
+
 sudo systemctl enable --now containerd
 sudo systemctl restart containerd 2>/dev/null || true
 log_step_ok "CONTAINERD" "containerd running"
