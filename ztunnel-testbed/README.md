@@ -343,19 +343,18 @@ make create-baremetal
 
 ### kubectl connects to localhost:8080 (connection refused)
 
-This means kubectl is not using a valid kubeconfig. Common causes:
+This means kubectl is not using a valid kubeconfig. **Quick fix (on control-plane):**
 
-1. **KUBECONFIG points to a non-existent file** (e.g. `~/.kube/ztunnel-baremetal-config` before you copied it):
-   ```bash
-   unset KUBECONFIG
-   ```
-2. **On control-plane**: kubeconfig is at `~/.kube/config`. If missing, run:
-   ```bash
-   mkdir -p ~/.kube
-   sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config
-   sudo chown $(id -u):$(id -g) ~/.kube/config
-   ```
-3. **Check shell profile**: `grep KUBECONFIG ~/.bashrc ~/.profile` — remove or fix if it points to a missing path.
+```bash
+make fix-kubeconfig
+# Then in the SAME shell (or new shell after fixing .bashrc):
+kubectl cluster-info
+```
+
+Or manually:
+1. **Unset bad KUBECONFIG**: `unset KUBECONFIG`
+2. **Copy kubeconfig** (on control-plane): `sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config && sudo chown $(id -u):$(id -g) ~/.kube/config`
+3. **Check shell profile**: `grep KUBECONFIG ~/.bashrc ~/.profile` — remove or fix if it points to a missing path (e.g. ztunnel-baremetal-config before copying).
 
 ### Cannot reach cluster
 
