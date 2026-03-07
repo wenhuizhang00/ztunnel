@@ -197,8 +197,9 @@ if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
 else
   log_step "CALICO" "Installing Calico CNI (${CALICO_VERSION}) - fetching manifests..."
   calico_start=$(date +%s)
-  kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/operator-crds.yaml"
-  kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+  # Use --server-side to avoid "metadata.annotations: Too long" (CRD annotation 256KB limit)
+  kubectl apply --server-side -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/operator-crds.yaml"
+  kubectl apply --server-side -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
   kubectl apply -f "${PROJECT_ROOT}/manifests/cni/calico-custom-resources.yaml"
   log_step "CALICO" "Waiting for Calico pods (sleep 15s + wait up to 180s)..."
   sleep 15
