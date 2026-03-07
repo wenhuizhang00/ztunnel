@@ -111,6 +111,18 @@ export KUBECONFIG=~/.kube/ztunnel-baremetal-config
 export KUBE_CONTEXT=kubernetes-admin@kubernetes  # if specifying context
 ```
 
+## Proxy (corporate / behind firewall)
+
+When behind an HTTP proxy, kubeadm may warn that cluster CIDRs use the proxy. Exclude them:
+
+```bash
+export NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
+# Add control-plane/node IPs if needed, e.g. NO_PROXY="${NO_PROXY},10.200.15.195"
+make create-baremetal
+```
+
+The script adds service (10.96.0.0/12) and pod (POD_NETWORK_CIDR) subnets automatically; extend NO_PROXY in `config/local.sh` for node IPs.
+
 ## Configuration
 
 | Variable | Description | Default |

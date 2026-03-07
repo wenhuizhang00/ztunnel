@@ -17,6 +17,10 @@
 # APP_NAMESPACE="grimlock"
 # APP_NAMESPACE_BASELINE="grimlock-baseline"
 
+# Proxy (when behind corporate proxy - add CIDRs so kubeadm bypasses proxy)
+# NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
+# Or extend: NO_PROXY="${NO_PROXY},10.200.0.0/16"  # control-plane/node IPs
+
 # Bare metal (when using make create-baremetal)
 # CNI_PROVIDER="calico"       # calico (default) | cilium
 # CILIUM_VERSION="1.16.0"    # When CNI_PROVIDER=cilium

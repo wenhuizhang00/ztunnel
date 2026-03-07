@@ -266,6 +266,18 @@ sudo ./scripts/install-baremetal-prereqs.sh
 
 See [Bare Metal Deployment](docs/BAREMETAL.md) for full prerequisites.
 
+### HTTP proxy warnings (kubeadm behind corporate proxy)
+
+If kubeadm reports proxy warnings for 10.96.0.0/12 or 192.168.0.0/16:
+
+```bash
+export NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
+# Add control-plane/node IPs: NO_PROXY="${NO_PROXY},10.200.15.195"
+make create-baremetal
+```
+
+Or set in `config/local.sh`.
+
 ### kubeadm init failed (experimental API, etc.)
 
 If a previous `kubeadm init` ran partially, reset first:

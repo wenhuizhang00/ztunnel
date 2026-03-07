@@ -107,8 +107,12 @@ else
   cp "${PROJECT_ROOT}/config/kubeadm-config.yaml" "$KUBEADM_CONFIG"
 fi
 
+# Bypass proxy for cluster-internal traffic (kubeadm, pod/service CIDRs)
+export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}"
+export NO_PROXY="${NO_PROXY},10.96.0.0/12,${POD_NETWORK_CIDR}"
+
 log_info "Running kubeadm init..."
-sudo kubeadm init --config "$KUBEADM_CONFIG"
+sudo -E kubeadm init --config "$KUBEADM_CONFIG"
 
 # Setup kubeconfig for current user
 log_info "Setting up kubeconfig..."
