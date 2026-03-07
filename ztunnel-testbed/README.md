@@ -170,7 +170,7 @@ ztunnel-testbed/
 │       └── Dockerfile
 ├── config/
 │   ├── versions.sh          # Istio, Gateway API versions
-│   ├── cluster.sh           # KUBE_CONTEXT (optional)
+│   ├── cluster.sh           # KUBE_CONTEXT (default: grimlock-cell)
 │   ├── baremetal.sh         # Bare metal: CNI, K8S_VERSION, POD_NETWORK_CIDR
 │   ├── cilium.sh            # Cilium version
 │   ├── kubeadm-config.yaml  # kubeadm init config
@@ -234,7 +234,7 @@ ISTIO_VERSION="1.29.0"
 GATEWAY_API_VERSION="v1.4.0"
 
 # Cluster
-KUBE_CONTEXT="my-context"   # Optional
+KUBE_CONTEXT="grimlock-cell"   # Default; override if your context has a different name
 
 # Istio platform (GKE, EKS, k3d, minikube)
 ISTIO_PLATFORM="gke"

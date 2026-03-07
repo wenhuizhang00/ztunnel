@@ -166,7 +166,11 @@ sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
 sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 export KUBECONFIG="$HOME/.kube/config"
 log_ok "kubeconfig ready"
-# Verify kubectl works (in new shells, use: export KUBECONFIG=$HOME/.kube/config or unset KUBECONFIG if it pointed to a missing file)
+# Rename context to grimlock-cell (matches KUBE_CONTEXT default)
+if kubectl config get-contexts kubernetes-admin@kubernetes &>/dev/null; then
+  kubectl config rename-context kubernetes-admin@kubernetes grimlock-cell 2>/dev/null && log_ok "Set current-context: grimlock-cell"
+fi
+# Verify kubectl works
 if ! kubectl get nodes &>/dev/null; then
   log_warn "kubectl get nodes failed. Ensure KUBECONFIG is set: export KUBECONFIG=$HOME/.kube/config"
 fi

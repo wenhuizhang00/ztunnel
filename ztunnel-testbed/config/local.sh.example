@@ -13,7 +13,7 @@
 # KUBECONFIG: Use ~/.kube/config (default). Only set if using a different path.
 #   - On control-plane and workstation: ~/.kube/config (copy from control-plane: scp user@cp:~/.kube/config ~/.kube/config)
 #   - If KUBECONFIG points to a non-existent file, kubectl will fail with "localhost:8080 refused".
-# KUBE_CONTEXT="my-context"   # Optional: kubectl context to use
+# KUBE_CONTEXT="grimlock-cell"   # Default. Override if different (e.g. kubernetes-admin@kubernetes, minikube)
 
 # Sample app namespaces (default: grimlock, grimlock-baseline)
 # APP_NAMESPACE="grimlock"

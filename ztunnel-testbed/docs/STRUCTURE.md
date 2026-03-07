@@ -77,7 +77,7 @@ ztunnel-testbed/
 |----------|--------|-------------|
 | `ISTIO_VERSION` | versions.sh | Istio version |
 | `GATEWAY_API_VERSION` | versions.sh | Gateway API CRDs version |
-| `KUBE_CONTEXT` | cluster.sh | kubectl context to use |
+| `KUBE_CONTEXT` | cluster.sh | kubectl context (default: grimlock-cell) |
 | `APP_NAMESPACE` | cluster.sh | Sample app namespace (default: grimlock) |
 | `APP_NAMESPACE_BASELINE` | cluster.sh | Baseline namespace (default: grimlock-baseline) |
 | `ISTIO_PLATFORM` | local.sh | gke, eks, k3d, minikube |

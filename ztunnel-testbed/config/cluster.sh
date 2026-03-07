@@ -8,8 +8,8 @@
 # Optional: path to kubeconfig (set in config/local.sh or export before make)
 export KUBECONFIG="${KUBECONFIG:-}"
 
-# Optional: kubectl context (empty = use current)
-export KUBE_CONTEXT="${KUBE_CONTEXT:-}"
+# Optional: kubectl context (default: grimlock-cell for bare metal; override in local.sh)
+export KUBE_CONTEXT="${KUBE_CONTEXT:-grimlock-cell}"
 
 # Sample app namespaces
 export APP_NAMESPACE="${APP_NAMESPACE:-grimlock}"

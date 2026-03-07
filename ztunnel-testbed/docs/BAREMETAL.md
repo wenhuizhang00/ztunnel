@@ -109,6 +109,8 @@ Or use the script:
   kubectl get nodes
   ```
 
+**Context**: The script renames the kubeadm context to `grimlock-cell` (default `KUBE_CONTEXT`). Override in `config/local.sh` if needed.
+
 **If kubectl shows "connection to localhost:8080 refused"**: `KUBECONFIG` likely points to a non-existent file. Run `unset KUBECONFIG` and use `~/.kube/config`.
 
 ## Proxy (corporate / behind firewall)

@@ -92,14 +92,27 @@ ensure_valid_kubeconfig() {
 
 # Ensure kubectl can reach cluster (switch context if KUBE_CONTEXT set)
 # Auto-fix: KUBECONFIG to non-existent file -> use ~/.kube/config; missing config -> copy from admin.conf
+# Auto-fix: current-context not set -> use KUBE_CONTEXT or first available context
 ensure_kubectl_context() {
   ensure_valid_kubeconfig
 
+  # Set current-context: use KUBE_CONTEXT if set, else ensure one is set
   if [[ -n "${KUBE_CONTEXT:-}" ]]; then
     kubectl config use-context "${KUBE_CONTEXT}" 2>/dev/null || {
       log_error "Failed to switch to context ${KUBE_CONTEXT}."
       return 1
     }
+  else
+    # Ensure current-context is set (kubeadm default: kubernetes-admin@kubernetes)
+    local current
+    current=$(kubectl config current-context 2>/dev/null || true)
+    if [[ -z "$current" ]]; then
+      local first_ctx
+      first_ctx=$(kubectl config get-contexts -o name 2>/dev/null | head -1)
+      if [[ -n "$first_ctx" ]]; then
+        kubectl config use-context "$first_ctx" 2>/dev/null && log_info "Set current-context: $first_ctx"
+      fi
+    fi
   fi
   if ! kubectl cluster-info &>/dev/null; then
     log_error "Cannot reach Kubernetes cluster."
