@@ -54,35 +54,62 @@ kubectl cluster-info
 make setup
 
 # Run tests
-make test-func
+make test-func          # interactive menu: pick which tests to run
+make test-func TEST=--all   # run all tests non-interactively
 make test-perf
 ```
 
-### Option B: Bare metal (create cluster first)
+### Option B: Bare metal - single node (control-plane runs workloads)
 
 ```bash
-# 0. On all nodes: install prerequisites (one-time)
+# 0. Install prerequisites (one-time)
 sudo ./scripts/install-baremetal-prereqs.sh
 
-# 1. On control-plane node: create cluster
+# 1. Create cluster (control-plane also runs pods)
 make create-baremetal
 
-# 2. On each worker: run the kubeadm join command printed above
-
-# 3. Use the cluster:
-#    - On control-plane: kubectl uses ~/.kube/config (default).
-#    - On workstation: copy kubeconfig to ~/.kube/config:
-#      scp gsadmin@<control-plane>:~/.kube/config ~/.kube/config
+# 2. Install Istio + deploy sample apps + run tests
 make setup
 make test-func
 ```
+
+### Option B2: Bare metal - multi-node (control-plane + worker)
+
+```bash
+# 0. On control-plane: install prerequisites
+sudo ./scripts/install-baremetal-prereqs.sh
+
+# 1. Create cluster with worker node(s) (auto-installs prereqs + joins via SSH)
+WORKER_NODES="10.136.0.75" make create-baremetal
+
+# 2. Install Istio + deploy sample apps (includes cross-node test pods)
+make setup
+
+# 3. Run tests (includes same-node AND cross-node ztunnel tests)
+make test-func
+make test-func TEST=ztunnel-cross-node   # cross-node HBONE tunnel test
+make test-func TEST=ztunnel-local        # same-node ztunnel test
+```
+
+Worker nodes are set up automatically via SSH. Requirements:
+- SSH key access from control-plane to worker: `ssh gsadmin@10.136.0.75`
+- Worker has passwordless sudo
+- Set `WORKER_SSH_USER` if SSH user differs from current user
+
+For multiple workers: `WORKER_NODES="10.136.0.75,10.136.0.76" make create-baremetal`
 
 ### Option C: Other cluster tools (minikube, kind, etc.)
 
 ```bash
 # Create cluster with your preferred tool, then:
+kubectl cluster-info
+
+# Full setup: verify cluster, install Istio, deploy sample apps
 make setup
+
+# Run tests
 make test-func
+make test-perf
 ```
 
 ## Workflow
@@ -110,7 +137,10 @@ make test-func
 | `make deploy` | Deploy sample apps only |
 | `make build-images` | Build local http-echo, curl-client, fortio images |
 | `make load-images` | Load local images into kind/minikube |
-| `make test-func` | Run functionality tests |
+| `make test-func` | Interactive test menu (pick tests to run) |
+| `make test-func TEST=--all` | Run all functionality tests |
+| `make test-func TEST=pod` | Run tests matching "pod" |
+| `make test-list` | List available functionality tests |
 | `make test-perf` | Run performance tests |
 | `make bench-ambient` | Performance test (ambient only) |
 | `make bench-baseline` | Performance test (baseline only) |
@@ -203,17 +233,22 @@ ztunnel-testbed/
 ├── scripts/baremetal/
 │   └── join-worker.sh
 ├── tests/
-│   ├── lib.sh
+│   ├── lib.sh                          # Test helpers: pass/fail/skip/detail
 │   ├── functionality/
 │   │   ├── test-cluster-ready.sh
+│   │   ├── test-cni-ready.sh
 │   │   ├── test-gateway-api.sh
 │   │   ├── test-istiod-ready.sh
 │   │   ├── test-ztunnel-ready.sh
+│   │   ├── test-ztunnel-certs.sh
+│   │   ├── test-ztunnel-logs.sh
+│   │   ├── test-ztunnel-workloads.sh
 │   │   ├── test-namespace-ambient.sh
+│   │   ├── test-ambient-vs-baseline.sh
 │   │   ├── test-sample-app-running.sh
+│   │   ├── test-dns-resolution.sh
 │   │   ├── test-pod-to-pod.sh
 │   │   ├── test-pod-to-service.sh
-│   │   ├── test-ztunnel-workloads.sh
 │   │   └── test-mtls-policy.sh
 │   └── performance/
 │       └── run-bench.sh
@@ -246,18 +281,35 @@ CILIUM_VERSION="1.16.0"
 
 ## Functionality Tests
 
+Run interactively to pick specific tests, or run all at once:
+
+```bash
+make test-func                  # interactive menu
+make test-func TEST=--all       # run all
+make test-func TEST=ztunnel     # run tests matching "ztunnel"
+make test-func TEST=pod-to-pod  # run a single test
+make test-list                  # list all available tests
+```
+
 | Test | Description |
 |------|-------------|
 | test-cluster-ready | All nodes Ready |
+| test-cni-ready | istio-cni-node DaemonSet ready |
 | test-gateway-api | Gateway API CRDs installed |
 | test-istiod-ready | Istiod deployment ready |
 | test-ztunnel-ready | ztunnel DaemonSet ready |
+| test-ztunnel-certs | ztunnel mTLS certificates active |
+| test-ztunnel-logs | ztunnel healthy (no crash loops/panics) |
+| test-ztunnel-workloads | `istioctl ztunnel-config workloads` |
 | test-namespace-ambient | grimlock has ambient label |
+| test-ambient-vs-baseline | Ambient vs non-ambient namespace isolation |
 | test-sample-app-running | http-echo and curl-client running |
+| test-dns-resolution | In-cluster DNS resolves service names |
 | test-pod-to-pod | Pod → Pod IP (via ztunnel) |
 | test-pod-to-service | Pod → Service → Pod |
-| test-ztunnel-workloads | `istioctl ztunnel-config workloads` |
-| test-mtls-policy | mTLS/policy placeholder |
+| test-ztunnel-local | Same-node pod-to-pod through ztunnel (local path) |
+| test-ztunnel-cross-node | Cross-node pod-to-pod through HBONE tunnel (multi-node only) |
+| test-mtls-policy | mTLS/policy placeholder (extend as needed) |
 
 ## Performance Tests
 
@@ -404,4 +456,5 @@ Use timestamps to see where time is spent; adjust proxy or pre-pull images if ne
 ## Docs
 
 - [Bare Metal Deployment](docs/BAREMETAL.md)
+- [Functionality Testing Guide](docs/TESTING.md)
 - [Directory Structure](docs/STRUCTURE.md)

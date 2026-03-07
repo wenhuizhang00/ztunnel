@@ -304,25 +304,61 @@ for i in {1..60}; do
 done
 log_ok "Control-plane ready."
 
-# Untaint control-plane for single-node or scheduling
-log_info "Allowing pods on control-plane (single-node testbed)..."
+# Untaint control-plane so it can run workloads (needed for both single and multi-node)
+log_info "Allowing pods on control-plane..."
 kubectl taint nodes --all node-role.kubernetes.io/control-plane- 2>/dev/null || true
 
-# Output join command for workers (non-fatal - cluster is ready either way)
-echo ""
-log_ok "Cluster created."
-# Try with user kubeconfig first (avoids sudo env/proxy issues), then sudo
-if KUBECONFIG="$HOME/.kube/config" kubeadm token create --print-join-command 2>/dev/null; then
-  echo ""
-elif sudo -E env KUBECONFIG=/etc/kubernetes/admin.conf kubeadm token create --print-join-command 2>/dev/null; then
-  echo ""
-else
-  log_warn "Could not create join token (Forbidden). For single-node, ignore. For workers, run manually:"
-  echo "  kubeadm token create --print-join-command"
-  echo ""
+# Generate join command
+JOIN_CMD=""
+if KUBECONFIG="$HOME/.kube/config" kubeadm token create --print-join-command 2>/dev/null > /tmp/.join-cmd 2>&1; then
+  JOIN_CMD=$(cat /tmp/.join-cmd | grep "kubeadm join" | head -1)
+elif sudo -E env KUBECONFIG=/etc/kubernetes/admin.conf kubeadm token create --print-join-command 2>/dev/null > /tmp/.join-cmd 2>&1; then
+  JOIN_CMD=$(cat /tmp/.join-cmd | grep "kubeadm join" | head -1)
 fi
+rm -f /tmp/.join-cmd
+
+# --- Multi-node: auto-join worker nodes ---
+NODE_MODE=$(get_node_mode)
+if [[ "$NODE_MODE" == "multi" ]]; then
+  log_info "Multi-node mode: joining worker(s): ${WORKER_NODES}"
+  if [[ -z "$JOIN_CMD" ]]; then
+    log_error "Could not generate join command. Join workers manually."
+  else
+    while IFS= read -r worker_ip; do
+      [[ -z "$worker_ip" ]] && continue
+      log_step "WORKER" "Setting up worker ${worker_ip}..."
+      worker_start=$(date +%s)
+      if "${SCRIPT_DIR}/baremetal/setup-worker.sh" "$worker_ip" "$JOIN_CMD"; then
+        log_step_ok "WORKER" "Worker ${worker_ip} joined" "$(( $(date +%s) - worker_start ))s"
+      else
+        log_warn "Failed to join worker ${worker_ip}. Join manually: ssh ${WORKER_SSH_USER}@${worker_ip} 'sudo ${JOIN_CMD}'"
+      fi
+    done < <(get_worker_ips)
+  fi
+
+  # Wait for all worker nodes to become Ready (timeout 120s)
+  log_step "WORKERS" "Waiting for all nodes to become Ready (up to 120s)..."
+  expected_nodes=$(( 1 + $(get_worker_ips | wc -l | tr -d ' ') ))
+  for i in {1..120}; do
+    ready_count=$(kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | tr ' ' '\n' | grep -c True || true)
+    [[ "$ready_count" -ge "$expected_nodes" ]] && break
+    [[ $i -eq 120 ]] && log_warn "Only $ready_count/$expected_nodes nodes Ready after 120s"
+    sleep 1
+  done
+  log_ok "Cluster: $ready_count/$expected_nodes nodes Ready"
+  kubectl get nodes -o wide
+else
+  # Single-node mode
+  if [[ -n "$JOIN_CMD" ]]; then
+    echo ""
+    log_info "Single-node mode. To add workers later:"
+    echo "  $JOIN_CMD"
+    echo ""
+  fi
+fi
+
 echo ""
-log_ok "Cluster ready. kubectl is configured for user '$USER' and root."
+log_ok "Cluster ready ($NODE_MODE-node). kubectl is configured for user '$USER' and root."
 
 # Source bashrc so KUBECONFIG and NO_PROXY take effect in this shell immediately
 source "$HOME/.bashrc" 2>/dev/null || true

@@ -55,6 +55,22 @@ kubectl rollout status deployment/curl-client -n "${APP_NAMESPACE_BASELINE}" --t
 log_step "ROLLOUT" "Waiting for fortio in ${APP_NAMESPACE} (timeout 60s)..."
 kubectl rollout status deployment/fortio -n "${APP_NAMESPACE}" --timeout=60s 2>/dev/null || true
 
+# Deploy cross-node apps in multi-node mode (for same-node vs cross-node ztunnel tests)
+NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${NODE_COUNT:-1}" -ge 2 ]]; then
+  log_step "DEPLOY" "Multi-node detected ($NODE_COUNT nodes). Deploying cross-node test apps..."
+  render_manifest "${PROJECT_ROOT}/manifests/sample-apps/cross-node-apps.yaml.template" "${MANIFEST_CACHE}/cross-node-apps.yaml"
+  kubectl apply -f "${MANIFEST_CACHE}/cross-node-apps.yaml"
+  log_step "ROLLOUT" "Waiting for cross-node apps (timeout 120s each)..."
+  kubectl rollout status deployment/http-echo-node1 -n "${APP_NAMESPACE}" --timeout=120s
+  kubectl rollout status deployment/http-echo-node2 -n "${APP_NAMESPACE}" --timeout=120s
+  kubectl rollout status deployment/curl-client-node1 -n "${APP_NAMESPACE}" --timeout=120s
+  kubectl rollout status deployment/curl-client-node2 -n "${APP_NAMESPACE}" --timeout=120s
+  log_step_ok "DEPLOY" "Cross-node apps ready"
+else
+  log_info "Single-node cluster. Cross-node test apps skipped."
+fi
+
 log_step_ok "DEPLOY" "Sample apps ready"
 log_info "Pods:"
 kubectl get pods -n "${APP_NAMESPACE}" -o wide

@@ -1,0 +1,192 @@
+# =============================================================================
+# Cross-node sample apps for multi-node ztunnel testing
+# =============================================================================
+# In multi-node mode, we deploy:
+#   - http-echo-node1: pinned to control-plane (node1)
+#   - http-echo-node2: pinned to worker node (node2)
+#   - curl-client-node1: pinned to control-plane
+#   - curl-client-node2: pinned to worker node
+#
+# This enables testing:
+#   - Same-node: curl-client-node1 -> http-echo-node1 (local ztunnel)
+#   - Cross-node: curl-client-node1 -> http-echo-node2 (HBONE tunnel between ztunnels)
+# =============================================================================
+
+# http-echo pinned to control-plane (node1)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-echo-node1
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: http-echo-node1
+    topology: node1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-echo-node1
+  template:
+    metadata:
+      labels:
+        app: http-echo-node1
+        topology: node1
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: echo
+          image: ${HTTP_ECHO_IMAGE}
+          args:
+            - "-text=hello-from-node1"
+            - "-listen=:8080"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+# http-echo pinned to worker (node2)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-echo-node2
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: http-echo-node2
+    topology: node2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-echo-node2
+  template:
+    metadata:
+      labels:
+        app: http-echo-node2
+        topology: node2
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: echo
+          image: ${HTTP_ECHO_IMAGE}
+          args:
+            - "-text=hello-from-node2"
+            - "-listen=:8080"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+# curl-client pinned to control-plane (node1)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-client-node1
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: curl-client-node1
+    topology: node1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl-client-node1
+  template:
+    metadata:
+      labels:
+        app: curl-client-node1
+        topology: node1
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: curl
+          image: ${CURL_IMAGE}
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+# curl-client pinned to worker (node2)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-client-node2
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: curl-client-node2
+    topology: node2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl-client-node2
+  template:
+    metadata:
+      labels:
+        app: curl-client-node2
+        topology: node2
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: curl
+          image: ${CURL_IMAGE}
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+# Services for node-pinned echo pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-echo-node1
+  namespace: ${APP_NAMESPACE}
+spec:
+  selector:
+    app: http-echo-node1
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-echo-node2
+  namespace: ${APP_NAMESPACE}
+spec:
+  selector:
+    app: http-echo-node2
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
