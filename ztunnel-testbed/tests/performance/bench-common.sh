@@ -5,6 +5,7 @@
 # Sourced by bench-throughput.sh, bench-latency.sh, and run-bench.sh
 # =============================================================================
 
+_BENCH_FIRST_RUN=1
 MODE="${MODE:-both}"
 CONCURRENCY="${CONCURRENCY:-4}"
 DURATION="${DURATION:-20s}"
@@ -113,14 +114,39 @@ run_and_report() {
     return
   fi
 
+  # Show raw percentile lines for the first test (debug: helps verify parsing)
+  if [[ "${_BENCH_FIRST_RUN:-1}" == "1" ]]; then
+    _BENCH_FIRST_RUN=0
+    echo "  [debug] Raw fortio percentile lines:" >&2
+    echo "$raw" | grep -E "target|All done|Aggregated" | head -8 | while IFS= read -r line; do
+      echo "    $line" >&2
+    done
+  fi
+
   local qps avg p50 p90 p99 p999 ok_pct
 
+  # QPS from "All done ... YYYY.Y qps"
   qps=$(echo "$raw" | grep "All done" | grep -oE '[0-9]+\.[0-9]+ qps' | grep -oE '[0-9]+\.[0-9]+' || echo "N/A")
-  avg=$(echo "$raw" | grep "All done" | grep -oE '[0-9]+\.[0-9e.-]+ avg' | grep -oE '[0-9]+\.[0-9e.-]+' || echo "N/A")
-  p50=$(echo "$raw" | grep "target 50%" | awk '{print $NF}' || echo "N/A")
-  p90=$(echo "$raw" | grep "target 90%" | awk '{print $NF}' || echo "N/A")
-  p99=$(echo "$raw" | grep "target 99%" | grep -v "99.9" | awk '{print $NF}' || echo "N/A")
-  p999=$(echo "$raw" | grep "target 99.9%" | awk '{print $NF}' || echo "N/A")
+
+  # Average latency from "Aggregated Function : count NNN avg X.XXXXXX"
+  # (more reliable than "All done" line which may use different units)
+  avg=$(echo "$raw" | grep "Aggregated Function" | grep -oE 'avg [0-9.e+-]+' | grep -oE '[0-9.e+-]+' || echo "N/A")
+
+  # Percentiles from "# target NN% X.XXXXXXX" lines
+  # Extract the last space-separated field (the latency value in seconds)
+  get_pct() {
+    local pct="$1"
+    local val
+    val=$(echo "$raw" | grep "# target ${pct}" | head -1 | awk '{print $NF}' || true)
+    [[ -n "$val" ]] && echo "$val" || echo "N/A"
+  }
+  p50=$(get_pct "50%")
+  p90=$(get_pct "90%")
+  p99=$(echo "$raw" | grep "# target 99%" | grep -v "99.9" | head -1 | awk '{print $NF}' || true)
+  [[ -n "$p99" ]] || p99="N/A"
+  p999=$(get_pct "99.9%")
+
+  # Success rate from "Code 200 : NNNNN (NN.N %)"
   ok_pct=$(echo "$raw" | grep "Code 200" | grep -oE '[0-9]+\.[0-9]+ %' | head -1 || echo "")
 
   to_us() {
