@@ -149,10 +149,13 @@ fi
 if [[ -f /etc/kubernetes/admin.conf ]] || [[ -f /etc/kubernetes/manifests/kube-apiserver.yaml ]] || ss -tlnp 2>/dev/null | grep -q ':6443 '; then
   log_info "Existing cluster detected. Running kubeadm reset -f..."
   sudo kubeadm reset -f 2>/dev/null || true
-  sudo rm -rf /etc/cni/net.d 2>/dev/null || true
+  sudo rm -rf /etc/cni/net.d/* 2>/dev/null || true
   sleep 5
   log_ok "Reset complete. Proceeding with fresh init."
 fi
+
+# Ensure CNI config directory exists before kubelet/containerd start watching it
+sudo mkdir -p /etc/cni/net.d
 
 # CHOKE: kubeadm init (preflight, image pull from registry.k8s.io, etcd, control-plane)
 log_step "KUBEADM" "Running kubeadm init (preflight + image pull + etcd + control-plane - may take 2-5 min)..."
@@ -284,6 +287,21 @@ else
   log_step_ok "CALICO" "Calico ready" "$(( $(date +%s) - calico_start ))s"
 fi
 
+# Restart containerd so it picks up the new CNI config written by calico-node.
+# Without this, containerd's inotify watch may miss the config if /etc/cni/net.d
+# was recreated after containerd started.
+sudo systemctl restart containerd
+sleep 5
+
+# Wait for node to become Ready (CNI now active, timeout 60s)
+log_step "NODE" "Waiting for node to become Ready..."
+for i in {1..60}; do
+  if kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
+    break
+  fi
+  [[ $i -eq 60 ]] && log_warn "Node not Ready after 60s. Continuing anyway."
+  sleep 1
+done
 log_ok "Control-plane ready."
 
 # Untaint control-plane for single-node or scheduling
