@@ -106,12 +106,37 @@ make test-func
 | `make install` | Install Istio ambient only |
 | `make install-cilium` | Install Cilium CNI (no Helm, Istio compatible) |
 | `make deploy` | Deploy sample apps only |
+| `make build-images` | Build local http-echo, curl-client, fortio images |
+| `make load-images` | Load local images into kind/minikube |
 | `make test-func` | Run functionality tests |
 | `make test-perf` | Run performance tests |
 | `make bench-ambient` | Performance test (ambient only) |
 | `make bench-baseline` | Performance test (baseline only) |
 | `make inspect` | Inspect ztunnel state |
 | `make clean` | Uninstall Istio, remove sample apps |
+
+## Local Images
+
+Use locally-built images (for air-gapped environments or to avoid pulling from registries):
+
+```bash
+# 1. Build images
+make build-images
+
+# 2. Load into cluster (kind/minikube; bare metal uses local images if built on same node)
+make load-images
+
+# 3. Deploy with local images
+USE_LOCAL_IMAGES=1 make deploy
+```
+
+Or set in `config/local.sh`:
+```bash
+USE_LOCAL_IMAGES=1
+IMAGE_REGISTRY="localhost/ztunnel-testbed"
+```
+
+Images: `images/http-echo`, `images/curl-client`, `images/fortio` (Dockerfiles included).
 
 ## Cilium CNI
 
@@ -133,6 +158,14 @@ Remove existing CNI before installing Cilium.
 
 ```
 ztunnel-testbed/
+├── images/
+│   ├── http-echo/       # Local http-echo (hashicorp/http-echo compatible)
+│   │   ├── Dockerfile
+│   │   └── main.go
+│   ├── curl-client/     # Local curl (curlimages/curl compatible)
+│   │   └── Dockerfile
+│   └── fortio/          # Local fortio (fortio/fortio compatible)
+│       └── Dockerfile
 ├── config/
 │   ├── versions.sh          # Istio, Gateway API versions
 │   ├── cluster.sh           # KUBE_CONTEXT (optional)
@@ -145,9 +178,9 @@ ztunnel-testbed/
 ├── manifests/
 │   ├── namespace-ambient.yaml      # grimlock namespace with ambient label
 │   ├── sample-apps/                # -> grimlock namespace
-│   │   └── simple-http-server.yaml
+│   │   └── simple-http-server.yaml.template
 │   ├── sample-apps-baseline/       # -> grimlock-baseline namespace
-│   │   └── http-echo-baseline.yaml
+│   │   └── http-echo-baseline.yaml.template
 │   ├── performance/
 │   │   └── fortio-client.yaml
 │   └── cni/

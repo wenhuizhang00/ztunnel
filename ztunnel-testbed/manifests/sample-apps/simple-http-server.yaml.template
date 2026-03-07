@@ -1,11 +1,13 @@
 # =============================================================================
 # Ambient sample app - http-echo + curl-client in grimlock namespace
 # =============================================================================
+# Images: HTTP_ECHO_IMAGE, CURL_IMAGE (see config/images.sh)
+# =============================================================================
 
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: grimlock
+  name: ${APP_NAMESPACE}
   labels:
     istio.io/dataplane-mode: ambient
 ---
@@ -13,7 +15,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-echo
-  namespace: grimlock
+  namespace: ${APP_NAMESPACE}
   labels:
     app: http-echo
 spec:
@@ -28,7 +30,7 @@ spec:
     spec:
       containers:
         - name: echo
-          image: hashicorp/http-echo:latest
+          image: ${HTTP_ECHO_IMAGE}
           args:
             - "-text=hello-from-pod"
             - "-listen=:8080"
@@ -44,7 +46,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-echo
-  namespace: grimlock
+  namespace: ${APP_NAMESPACE}
 spec:
   selector:
     app: http-echo
@@ -58,7 +60,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: curl-client
-  namespace: grimlock
+  namespace: ${APP_NAMESPACE}
   labels:
     app: curl-client
 spec:
@@ -73,7 +75,7 @@ spec:
     spec:
       containers:
         - name: curl
-          image: curlimages/curl:latest
+          image: ${CURL_IMAGE}
           command: ["sleep", "infinity"]
           resources:
             requests:

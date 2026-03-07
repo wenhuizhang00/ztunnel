@@ -19,7 +19,8 @@ ztunnel-testbed/
 | File | Description |
 |------|-------------|
 | `versions.sh` | Istio, Gateway API version variables |
-| `cluster.sh` | KUBE_CONTEXT (optional, for existing cluster) |
+| `cluster.sh` | KUBE_CONTEXT, APP_NAMESPACE, APP_NAMESPACE_BASELINE |
+| `images.sh` | HTTP_ECHO_IMAGE, CURL_IMAGE, FORTIO_IMAGE (USE_LOCAL_IMAGES, IMAGE_REGISTRY) |
 | `baremetal.sh` | Bare metal: CNI_PROVIDER, K8S_VERSION, POD_NETWORK_CIDR, CALICO_VERSION |
 | `cilium.sh` | Cilium version (when CNI_PROVIDER=cilium) |
 | `kubeadm-config.yaml` | kubeadm ClusterConfiguration |
@@ -32,9 +33,9 @@ ztunnel-testbed/
 | Path | Description |
 |------|-------------|
 | `namespace-ambient.yaml` | Namespace with ambient label |
-| `sample-apps/simple-http-server.yaml` | Ambient mesh apps in grimlock namespace |
-| `sample-apps-baseline/http-echo-baseline.yaml` | Non-ambient apps in grimlock-baseline |
-| `performance/fortio-client.yaml` | fortio load generator |
+| `sample-apps/simple-http-server.yaml.template` | Ambient mesh apps (envsubst: HTTP_ECHO_IMAGE, CURL_IMAGE, APP_NAMESPACE) |
+| `sample-apps-baseline/http-echo-baseline.yaml.template` | Non-ambient apps (envsubst) |
+| `performance/fortio-client.yaml.template` | fortio load generator (envsubst) |
 | `cni/calico-custom-resources.yaml` | Calico Installation CR (pod CIDR) |
 
 ## scripts/
@@ -45,6 +46,8 @@ ztunnel-testbed/
 | `create-cluster.sh` | Verify kubectl cluster connectivity |
 | `create-cluster-baremetal.sh` | Create K8s cluster on bare metal (kubeadm, Calico or Cilium) |
 | `install-baremetal-prereqs.sh` | Install kubeadm, kubelet, kubectl, containerd (Ubuntu/Debian) |
+| `build-images.sh` | Build local http-echo, curl-client, fortio images |
+| `load-images.sh` | Load local images into kind/minikube |
 | `install-istio.sh` | Install Istio ambient (istioctl) |
 | `install-cilium.sh` | Install Cilium CNI (Cilium CLI, no Helm) |
 | `deploy-sample-apps.sh` | Deploy sample apps to grimlock + grimlock-baseline |

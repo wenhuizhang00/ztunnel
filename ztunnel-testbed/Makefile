@@ -4,7 +4,7 @@
 # Convenience targets for common operations
 # =============================================================================
 
-.PHONY: setup create install deploy test-func test-perf bench-ambient bench-baseline install-prereqs-baremetal inspect clean help
+.PHONY: setup create install deploy build-images load-images test-func test-perf bench-ambient bench-baseline install-prereqs-baremetal inspect clean help
 
 SHELL := /bin/bash
 
@@ -29,6 +29,12 @@ install-cilium:
 
 deploy:
 	./scripts/deploy-sample-apps.sh
+
+build-images:
+	./scripts/build-images.sh
+
+load-images:
+	./scripts/load-images.sh
 
 test-func:
 	./scripts/run-functionality-tests.sh
@@ -57,6 +63,8 @@ help:
 	@echo "  make install       - Install Istio ambient only"
 	@echo "  make install-cilium - Install Cilium CNI (no Helm, Istio compatible)"
 	@echo "  make deploy       - Deploy sample apps only"
+	@echo "  make build-images - Build local http-echo, curl-client, fortio images"
+	@echo "  make load-images  - Load local images into kind/minikube"
 	@echo "  make test-func    - Run functionality tests"
 	@echo "  make test-perf    - Run performance tests (ambient + baseline)"
 	@echo "  make bench-ambient  - Performance test (ambient only)"

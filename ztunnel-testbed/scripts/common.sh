@@ -9,10 +9,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Load config
+# Load config (local.sh before images.sh so USE_LOCAL_IMAGES can be set)
 source "${PROJECT_ROOT}/config/versions.sh" 2>/dev/null || true
 source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 [ -f "${PROJECT_ROOT}/config/local.sh" ] && source "${PROJECT_ROOT}/config/local.sh" 2>/dev/null || true
+source "${PROJECT_ROOT}/config/images.sh" 2>/dev/null || true
 
 # Colors for output
 RED='\033[0;31m'

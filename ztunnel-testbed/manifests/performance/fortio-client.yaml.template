@@ -2,13 +2,14 @@
 # Fortio client for performance testing (ambient namespace)
 # =============================================================================
 # Can target both http-echo.grimlock (ambient) and http-echo.grimlock-baseline (baseline)
+# Image: FORTIO_IMAGE (see config/images.sh)
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: fortio
-  namespace: grimlock
+  namespace: ${APP_NAMESPACE}
   labels:
     app: fortio
 spec:
@@ -23,7 +24,7 @@ spec:
     spec:
       containers:
         - name: fortio
-          image: fortio/fortio:latest
+          image: ${FORTIO_IMAGE}
           command: ["sleep", "infinity"]
           resources:
             requests:

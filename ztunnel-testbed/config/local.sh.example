@@ -17,6 +17,10 @@
 # APP_NAMESPACE="grimlock"
 # APP_NAMESPACE_BASELINE="grimlock-baseline"
 
+# Local images (build with make build-images, then USE_LOCAL_IMAGES=1 make deploy)
+# USE_LOCAL_IMAGES=1
+# IMAGE_REGISTRY="localhost/ztunnel-testbed"  # Or your registry
+
 # Proxy (when behind corporate proxy - add CIDRs so kubeadm bypasses proxy)
 # NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
 # Or extend: NO_PROXY="${NO_PROXY},10.200.0.0/16"  # control-plane/node IPs
