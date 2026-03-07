@@ -233,5 +233,5 @@ else
 fi
 echo ""
 log_info "On control-plane: kubectl uses ~/.kube/config (already set)."
-log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/ztunnel-baremetal-config"
+log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
 log_info "If kubectl fails, run: unset KUBECONFIG  (if it pointed to a non-existent file)"

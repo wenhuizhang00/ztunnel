@@ -99,21 +99,17 @@ Or use the script:
 
 **On control-plane** (where you ran `make create-baremetal`):
 - Kubeconfig is at `~/.kube/config` (set by the script).
-- Use the default; do **not** set `KUBECONFIG` to `ztunnel-baremetal-config` (that file does not exist on the control-plane).
+- Use the default; do not set `KUBECONFIG` to a non-existent path.
 - Verify: `kubectl get nodes`
 
 **On workstation** (laptop, CI, etc.):
-- First copy the kubeconfig from the control-plane:
+- Copy the kubeconfig from the control-plane to `~/.kube/config`:
   ```bash
-  scp gsadmin@<control-plane-ip>:~/.kube/config ~/.kube/ztunnel-baremetal-config
-  ```
-- Then set KUBECONFIG:
-  ```bash
-  export KUBECONFIG=~/.kube/ztunnel-baremetal-config
+  scp gsadmin@<control-plane-ip>:~/.kube/config ~/.kube/config
   kubectl get nodes
   ```
 
-**If kubectl shows "connection to localhost:8080 refused"**: `KUBECONFIG` likely points to a non-existent file. Run `unset KUBECONFIG` and use `~/.kube/config` (control-plane) or copy the file first (workstation).
+**If kubectl shows "connection to localhost:8080 refused"**: `KUBECONFIG` likely points to a non-existent file. Run `unset KUBECONFIG` and use `~/.kube/config`.
 
 ## Proxy (corporate / behind firewall)
 

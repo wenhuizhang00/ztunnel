@@ -10,10 +10,8 @@
 # ISTIO_PLATFORM="gke"   # Optional: gke, eks, k3d, minikube
 
 # Cluster
-# KUBECONFIG: Only set when using a COPIED kubeconfig (e.g. on workstation).
-#   - On control-plane: do NOT set; use default ~/.kube/config.
-#   - On workstation: after scp from control-plane, set:
-#     KUBECONFIG="$HOME/.kube/ztunnel-baremetal-config"
+# KUBECONFIG: Use ~/.kube/config (default). Only set if using a different path.
+#   - On control-plane and workstation: ~/.kube/config (copy from control-plane: scp user@cp:~/.kube/config ~/.kube/config)
 #   - If KUBECONFIG points to a non-existent file, kubectl will fail with "localhost:8080 refused".
 # KUBE_CONTEXT="my-context"   # Optional: kubectl context to use
 

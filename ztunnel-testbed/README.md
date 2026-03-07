@@ -70,10 +70,9 @@ make create-baremetal
 # 2. On each worker: run the kubeadm join command printed above
 
 # 3. Use the cluster:
-#    - On control-plane: kubectl uses ~/.kube/config (default). Do NOT set KUBECONFIG to ztunnel-baremetal-config.
-#    - On workstation: first copy kubeconfig, then set KUBECONFIG:
-#      scp gsadmin@<control-plane>:~/.kube/config ~/.kube/ztunnel-baremetal-config
-#      export KUBECONFIG=~/.kube/ztunnel-baremetal-config
+#    - On control-plane: kubectl uses ~/.kube/config (default).
+#    - On workstation: copy kubeconfig to ~/.kube/config:
+#      scp gsadmin@<control-plane>:~/.kube/config ~/.kube/config
 make setup
 make test-func
 ```
@@ -349,7 +348,7 @@ make create-baremetal
 |-------|----------------|-----|
 | `KUBECONFIG` points to non-existent file | `config/local.sh`, `~/.bashrc`, `~/.profile` | `unset KUBECONFIG` or remove/fix the line |
 | `~/.kube/config` missing on control-plane | — | `sudo cp /etc/kubernetes/admin.conf ~/.kube/config && sudo chown $(id -u):$(id -g) ~/.kube/config` |
-| `ztunnel-baremetal-config` used before copying | `config/local.sh` (workstation example) | On control-plane: do NOT set this; use default `~/.kube/config` |
+| KUBECONFIG points to non-existent file | `config/local.sh` or shell profile | Use `~/.kube/config`; remove bad KUBECONFIG from config/local.sh |
 
 **Built-in auto-fix**: Scripts that use `ensure_kubectl_context` (e.g. `make setup`, `make create`) automatically:
 - Switch to `~/.kube/config` when `KUBECONFIG` points to a non-existent file
@@ -364,7 +363,7 @@ sudo chown $(id -u):$(id -g) ~/.kube/config
 kubectl cluster-info
 ```
 
-**If it persists**: Check shell profile — `grep -n KUBECONFIG ~/.bashrc ~/.profile 2>/dev/null`. Remove or fix any line that sets `KUBECONFIG` to a path that doesn't exist (e.g. `~/.kube/ztunnel-baremetal-config` before you've copied it).
+**If it persists**: Check shell profile — `grep -n KUBECONFIG ~/.bashrc ~/.profile 2>/dev/null`. Remove or fix any line that sets `KUBECONFIG` to a path that doesn't exist. Use `~/.kube/config` as the standard path.
 
 ### Cannot reach cluster
 
