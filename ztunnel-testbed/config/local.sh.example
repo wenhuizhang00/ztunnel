@@ -10,6 +10,7 @@
 # ISTIO_PLATFORM="gke"   # Optional: gke, eks, k3d, minikube
 
 # Cluster
+# KUBECONFIG="$HOME/.kube/ztunnel-baremetal-config"  # Point to kubeconfig (e.g. from bare-metal)
 # KUBE_CONTEXT="my-context"   # Optional: kubectl context to use
 
 # Sample app namespaces (default: grimlock, grimlock-baseline)

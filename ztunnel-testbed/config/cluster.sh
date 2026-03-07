@@ -5,6 +5,9 @@
 # Use an existing Kubernetes cluster. Set KUBECONFIG or switch context.
 # =============================================================================
 
+# Optional: path to kubeconfig (set in config/local.sh or export before make)
+export KUBECONFIG="${KUBECONFIG:-}"
+
 # Optional: kubectl context (empty = use current)
 export KUBE_CONTEXT="${KUBE_CONTEXT:-}"
 

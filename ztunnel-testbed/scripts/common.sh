@@ -48,9 +48,18 @@ ensure_kubectl_context() {
   if ! kubectl cluster-info &>/dev/null; then
     log_error "Cannot reach Kubernetes cluster."
     echo ""
+    if [[ -n "${KUBECONFIG:-}" ]]; then
+      if [[ ! -f "${KUBECONFIG}" ]]; then
+        echo "  KUBECONFIG=${KUBECONFIG} points to a file that does not exist."
+        echo "  Create a cluster first, then copy kubeconfig from the control-plane."
+      else
+        echo "  KUBECONFIG=${KUBECONFIG} exists but cluster is unreachable (API server down, wrong host, or firewall)."
+      fi
+      echo ""
+    fi
     echo "  Next steps:"
     echo "  1. Create a cluster first. Options:"
-    echo "     - Bare metal:  make create-baremetal  (run on control-plane node)"
+    echo "     - Bare metal:  make create-baremetal  (run on control-plane node; install kubeadm first)"
     echo "     - Minikube:    minikube start"
     echo "     - Kind:        kind create cluster"
     echo "  2. Or point kubectl to existing cluster:"

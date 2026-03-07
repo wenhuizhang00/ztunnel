@@ -33,7 +33,18 @@ log_info "Creating Kubernetes cluster on bare metal (kubeadm, no k3s)"
 
 # Check required commands
 for cmd in kubeadm kubectl; do
-  command -v "$cmd" &>/dev/null || { log_error "Required: $cmd"; exit 1; }
+  if ! command -v "$cmd" &>/dev/null; then
+    log_error "Required: $cmd"
+    echo ""
+    echo "  Install on Ubuntu/Debian:"
+    echo "    sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl"
+    echo "    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg"
+    echo "    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list"
+    echo "    sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl"
+    echo ""
+    echo "  See docs/BAREMETAL.md for full prerequisites."
+    exit 1
+  fi
 done
 
 # Generate kubeadm config
