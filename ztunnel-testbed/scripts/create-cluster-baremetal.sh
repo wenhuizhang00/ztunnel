@@ -11,6 +11,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# #region agent log
+_DBG_ROOT="$(cd "${SCRIPT_DIR}/../.." 2>/dev/null && pwd || echo "${PROJECT_ROOT}")"
+_DBG_LOG="${_DBG_ROOT}/.cursor/debug-d618c2.log"
+mkdir -p "$(dirname "$_DBG_LOG")"
+_dbg() { local _loc="$1" _msg="$2" _data="$3"; echo "{\"sessionId\":\"d618c2\",\"location\":\"${_loc}\",\"message\":\"${_msg}\",\"data\":${_data},\"timestamp\":$(date +%s)000}" >> "$_DBG_LOG"; }
+# #endregion
+
 # Load config
 source "${PROJECT_ROOT}/config/versions.sh" 2>/dev/null || true
 source "${PROJECT_ROOT}/config/baremetal.sh" 2>/dev/null || true
@@ -160,13 +167,32 @@ kubeadm_start=$(date +%s)
 sudo -E kubeadm init --config "$KUBEADM_CONFIG"
 log_step_ok "KUBEADM" "kubeadm init complete" "$(( $(date +%s) - kubeadm_start ))s"
 
+# #region agent log
+_dbg "create-cluster-baremetal.sh:post-init" "H4,H5: post kubeadm-init state" "{\"admin_conf_exists\":\"$(test -f /etc/kubernetes/admin.conf && echo yes || echo no)\",\"apiserver_manifest\":\"$(test -f /etc/kubernetes/manifests/kube-apiserver.yaml && echo yes || echo no)\",\"port_6443\":\"$(ss -tlnp 2>/dev/null | grep -c ':6443 ' || echo 0)\"}"
+# #endregion
+
 # Setup kubeconfig for current user
 log_step "KUBECONFIG" "Setting up kubeconfig..."
 mkdir -p "$HOME/.kube"
 sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
 sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 export KUBECONFIG="$HOME/.kube/config"
+
+# #region agent log
+_admin_server=$(grep 'server:' /etc/kubernetes/admin.conf 2>/dev/null | head -1 | awk '{print $2}' || echo "N/A")
+_user_server=$(grep 'server:' "$HOME/.kube/config" 2>/dev/null | head -1 | awk '{print $2}' || echo "N/A")
+_dbg "create-cluster-baremetal.sh:kubeconfig-setup" "H1,H3,H5: kubeconfig state after copy" "{\"HOME\":\"$HOME\",\"KUBECONFIG\":\"${KUBECONFIG:-unset}\",\"user_config_exists\":\"$(test -f $HOME/.kube/config && echo yes || echo no)\",\"admin_server\":\"${_admin_server}\",\"user_server\":\"${_user_server}\",\"config_owner\":\"$(ls -ln $HOME/.kube/config 2>/dev/null | awk '{print $3\":\"$4}' || echo N/A)\",\"current_uid\":\"$(id -u):$(id -g)\",\"root_config_exists\":\"$(sudo test -f /root/.kube/config && echo yes || echo no)\"}"
+# #endregion
+
 log_ok "kubeconfig ready"
+
+# Also copy to root's home so 'sudo kubectl' works (H2)
+# #region agent log
+_dbg "create-cluster-baremetal.sh:root-kubeconfig" "H2: checking root kubeconfig" "{\"root_home\":\"/root\",\"root_kube_dir_exists\":\"$(sudo test -d /root/.kube && echo yes || echo no)\",\"root_config_exists\":\"$(sudo test -f /root/.kube/config && echo yes || echo no)\"}"
+# #endregion
+sudo mkdir -p /root/.kube
+sudo cp -f /etc/kubernetes/admin.conf /root/.kube/config
+
 # Wait for API server to be ready (retry up to 30s)
 for i in {1..30}; do
   if kubectl get nodes &>/dev/null; then
@@ -175,8 +201,15 @@ for i in {1..30}; do
   [[ $i -eq 30 ]] && { log_error "kubectl get nodes failed after 30s. Check: export KUBECONFIG=$HOME/.kube/config"; exit 1; }
   sleep 1
 done
+
+# #region agent log
+_kubectl_out=$(kubectl get nodes -o wide 2>&1 || true)
+_sudo_kubectl_out=$(sudo kubectl get nodes -o wide 2>&1 || true)
+_dbg "create-cluster-baremetal.sh:post-verify" "H1,H2,H3,H4: kubectl verification" "{\"kubectl_works\":\"$(kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_kubectl_works\":\"$(sudo kubectl get nodes &>/dev/null && echo yes || echo no)\",\"kubectl_output\":\"$(echo "$_kubectl_out" | head -3 | tr '\n' '|')\",\"sudo_kubectl_output\":\"$(echo "$_sudo_kubectl_out" | head -3 | tr '\n' '|')\"}"
+# #endregion
+
 # Rename context to grimlock-cell (matches KUBE_CONTEXT default)
-ctx=$(kubectl config current-context 2>/dev/null)
+ctx=$(kubectl config current-context 2>/dev/null) || true
 if [[ -n "$ctx" ]] && [[ "$ctx" != "grimlock-cell" ]]; then
   kubectl config rename-context "$ctx" grimlock-cell 2>/dev/null && log_ok "Set current-context: grimlock-cell"
 fi
@@ -259,4 +292,7 @@ echo "  # If kubectl still fails (localhost:8080), KUBECONFIG may be set elsewhe
 echo "  unset KUBECONFIG"
 echo "  export KUBECONFIG=\$HOME/.kube/config"
 echo ""
+# #region agent log
+_dbg "create-cluster-baremetal.sh:final" "ALL: final cluster state" "{\"KUBECONFIG_env\":\"${KUBECONFIG:-unset}\",\"user_kubectl\":\"$(kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"sudo_kubectl\":\"$(sudo kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"api_server_healthy\":\"$(curl -sk https://$(grep 'server:' $HOME/.kube/config 2>/dev/null | head -1 | awk '{print $2}' | sed 's|https://||')/healthz 2>/dev/null || echo no)\"}"
+# #endregion
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
