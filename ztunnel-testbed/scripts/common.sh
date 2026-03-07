@@ -57,8 +57,41 @@ check_cmd() {
   return 0
 }
 
+# Verify and fix kubeconfig before cluster checks. Prints status.
+verify_kubeconfig() {
+  log_info "[1/3] Checking kubeconfig..."
+  if [[ -n "${KUBECONFIG:-}" ]]; then
+    if [[ -f "${KUBECONFIG}" ]]; then
+      log_ok "KUBECONFIG=${KUBECONFIG} (exists)"
+    else
+      if [[ -f "$HOME/.kube/config" ]]; then
+        log_warn "KUBECONFIG=${KUBECONFIG} not found. Using ~/.kube/config"
+        export KUBECONFIG="$HOME/.kube/config"
+      else
+        log_error "KUBECONFIG=${KUBECONFIG} not found, and ~/.kube/config does not exist."
+        return 1
+      fi
+    fi
+  else
+    if [[ -f "$HOME/.kube/config" ]]; then
+      log_ok "Using ~/.kube/config (default)"
+    else
+      log_error "No kubeconfig. Set KUBECONFIG or create ~/.kube/config"
+      return 1
+    fi
+  fi
+  return 0
+}
+
 # Ensure kubectl can reach cluster (switch context if KUBE_CONTEXT set)
+# Auto-fallback: if KUBECONFIG points to non-existent file, try ~/.kube/config
 ensure_kubectl_context() {
+  # Auto-fix: KUBECONFIG points to non-existent file -> use ~/.kube/config if it exists
+  if [[ -n "${KUBECONFIG:-}" ]] && [[ ! -f "${KUBECONFIG}" ]] && [[ -f "$HOME/.kube/config" ]]; then
+    log_info "KUBECONFIG=${KUBECONFIG} not found. Using ~/.kube/config"
+    export KUBECONFIG="$HOME/.kube/config"
+  fi
+
   if [[ -n "${KUBE_CONTEXT:-}" ]]; then
     kubectl config use-context "${KUBE_CONTEXT}" 2>/dev/null || {
       log_error "Failed to switch to context ${KUBE_CONTEXT}."
