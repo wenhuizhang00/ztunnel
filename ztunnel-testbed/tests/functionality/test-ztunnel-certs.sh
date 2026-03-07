@@ -29,6 +29,7 @@ ISTIOCTL="${PROJECT_ROOT}/bin/istioctl"
 [[ -x "$ISTIOCTL" ]] || ISTIOCTL=$(command -v istioctl 2>/dev/null || true)
 
 test_start "ztunnel certificates"
+test_desc "Checks ztunnel has SPIFFE mTLS certs. Without certs, encrypted pod communication fails."
 
 if [[ ! -x "${ISTIOCTL:-}" ]]; then
   skip "istioctl not found (run: make install)"

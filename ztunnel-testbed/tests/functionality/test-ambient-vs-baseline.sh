@@ -32,6 +32,7 @@ NS="${APP_NAMESPACE:-grimlock}"
 NS_BASE="${APP_NAMESPACE_BASELINE:-grimlock-baseline}"
 
 test_start "Ambient vs baseline namespace isolation"
+test_desc "Checks grimlock=ambient, grimlock-baseline=no-ambient. Validates selective mesh enrollment."
 
 # Verify namespace labels
 ambient_label=$(kubectl get namespace "$NS" -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null || true)

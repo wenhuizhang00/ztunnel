@@ -30,6 +30,7 @@ source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "ztunnel local (same-node) traffic"
+test_desc "Tests pod-to-pod on the SAME node through local ztunnel. Verifies local interception path."
 
 # Check if cross-node apps are deployed
 client_pod=$(kubectl get pods -n "$NS" -l app=curl-client-node1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)

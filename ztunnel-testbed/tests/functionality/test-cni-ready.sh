@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "CNI plugin ready"
+test_desc "Checks istio-cni-node DaemonSet is rolled out. Without CNI, ambient traffic capture fails."
 
 if kubectl get daemonset istio-cni-node -n istio-system &>/dev/null; then
   desired=$(kubectl get daemonset istio-cni-node -n istio-system -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)

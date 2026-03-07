@@ -30,6 +30,7 @@ ISTIOCTL="${PROJECT_ROOT}/bin/istioctl"
 [[ -x "$ISTIOCTL" ]] || ISTIOCTL=$(command -v istioctl 2>/dev/null || true)
 
 test_start "ztunnel workload visibility"
+test_desc "Checks ztunnel sees your pods via istioctl. If missing, namespace may lack ambient label."
 
 if [[ ! -x "${ISTIOCTL:-}" ]]; then
   skip "istioctl not found (run: make install)"

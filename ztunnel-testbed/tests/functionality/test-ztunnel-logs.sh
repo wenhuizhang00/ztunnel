@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "ztunnel logs healthy"
+test_desc "Checks ztunnel is not crash-looping and has no FATAL errors in recent logs."
 
 ztunnel_pod=$(kubectl get pods -n istio-system -l app=ztunnel -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 if [[ -z "$ztunnel_pod" ]]; then

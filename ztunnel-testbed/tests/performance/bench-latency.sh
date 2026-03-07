@@ -35,6 +35,8 @@ run_latency() {
   echo ""
   echo "=================================================================="
   echo "  LATENCY: Payload Size ($mode, $topo_label)"
+  echo "  Measures P50/P90/P99/P99.9 latency in microseconds per payload size."
+  echo "  Lower = better. P99 shows worst-case for 99% of requests."
   echo "  Path: $client → $topo_label → fortio-server"
   echo "  Concurrency: $CONCURRENCY (low for accurate latency), Duration: $DURATION"
   echo "=================================================================="
@@ -51,6 +53,8 @@ run_latency() {
   echo ""
   echo "=================================================================="
   echo "  LATENCY: HTTP Methods ($mode, $topo_label)"
+  echo "  Compares GET vs POST, keep-alive vs new-connection, and concurrency impact."
+  echo "  no-keepalive shows TLS handshake cost (new connection per request)."
   echo "=================================================================="
   echo ""
   print_header

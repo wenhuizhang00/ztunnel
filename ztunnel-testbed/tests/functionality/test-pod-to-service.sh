@@ -33,6 +33,7 @@ source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "Pod -> Service -> Pod"
+test_desc "Sends HTTP request via ClusterIP Service. Tests DNS + kube-proxy + ztunnel end-to-end."
 
 client_pod=$(kubectl get pods -n "$NS" -l app=curl-client -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 if [[ -z "$client_pod" ]]; then

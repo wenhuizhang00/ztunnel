@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "ztunnel DaemonSet ready"
+test_desc "Checks ztunnel proxy runs on every node. ztunnel handles L4 mTLS for ambient pods."
 
 kubectl get daemonset ztunnel -n istio-system &>/dev/null || fail "ztunnel DaemonSet not found"
 desired=$(kubectl get daemonset ztunnel -n istio-system -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)

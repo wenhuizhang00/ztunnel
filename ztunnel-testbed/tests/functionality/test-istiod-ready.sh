@@ -25,6 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "Istiod ready"
+test_desc "Checks Istiod control plane is running. Istiod pushes config and certs to ztunnel."
 
 kubectl get deployment istiod -n istio-system &>/dev/null || fail "istiod deployment not found"
 ready=$(kubectl get deployment istiod -n istio-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)

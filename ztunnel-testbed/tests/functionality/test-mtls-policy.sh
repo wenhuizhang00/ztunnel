@@ -35,6 +35,7 @@ ISTIOCTL="${PROJECT_ROOT}/bin/istioctl"
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "mTLS encryption verification"
+test_desc "Proves traffic is encrypted: SPIFFE certs, HBONE protocol, ztunnel proxy logs, metrics."
 
 # --- Check 1: SPIFFE certificates exist for grimlock workloads ---
 detail "Check 1: SPIFFE certificates for $NS workloads"

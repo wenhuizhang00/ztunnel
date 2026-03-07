@@ -24,6 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "Cluster ready"
+test_desc "Checks all K8s nodes are Ready. NotReady = CNI issue or kubelet problem."
 
 # Query the Ready condition for every node
 nodes_ready=$(kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | tr ' ' '\n' | grep -c True || true)

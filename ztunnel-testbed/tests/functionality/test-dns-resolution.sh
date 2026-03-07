@@ -29,6 +29,7 @@ source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "DNS resolution inside pods"
+test_desc "Checks CoreDNS resolves service names from inside ambient pods. DNS must work through ztunnel."
 
 client_pod=$(kubectl get pods -n "$NS" -l app=curl-client -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 if [[ -z "$client_pod" ]]; then

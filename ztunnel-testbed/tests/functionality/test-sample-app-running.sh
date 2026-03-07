@@ -27,6 +27,7 @@ source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "Sample app running"
+test_desc "Checks http-echo and curl-client deployments are ready. These are needed for connectivity tests."
 
 # http-echo deployment
 ready=$(kubectl get deployment http-echo -n "$NS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)

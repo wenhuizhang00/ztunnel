@@ -31,6 +31,7 @@ source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "Pod-to-Pod direct (curl -> http-echo pod IP)"
+test_desc "Sends HTTP request to pod IP directly through ztunnel. Tests the L4 mTLS data path."
 
 client_pod=$(kubectl get pods -n "$NS" -l app=curl-client -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 if [[ -z "$client_pod" ]]; then

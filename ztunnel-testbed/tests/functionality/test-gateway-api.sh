@@ -22,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "Gateway API CRDs"
+test_desc "Checks Gateway/HTTPRoute CRDs exist. Required for Istio traffic routing."
 
 kubectl get crd gateways.gateway.networking.k8s.io &>/dev/null || fail "CRD gateways.gateway.networking.k8s.io not found"
 kubectl get crd httproutes.gateway.networking.k8s.io &>/dev/null || fail "CRD httproutes.gateway.networking.k8s.io not found"

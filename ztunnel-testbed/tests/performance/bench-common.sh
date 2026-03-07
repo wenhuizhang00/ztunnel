@@ -142,19 +142,27 @@ run_and_report() {
 
   to_us() {
     local v="$1"
-    [[ -z "$v" || "$v" == "N/A" ]] && echo "     N/A" && return
-    awk "BEGIN {printf \"%8.1f\", $v * 1000000}" 2>/dev/null || echo "     $v"
+    [[ -z "$v" || "$v" == "N/A" ]] && echo "N/A" && return
+    awk "BEGIN {printf \"%.1f\", $v * 1000000}" 2>/dev/null || echo "$v"
   }
 
-  printf "  %-28s  %10s  %9s  %9s  %9s  %9s  %9s  %s\n" \
-    "$label" "${qps:-N/A}" "$(to_us "$avg")" "$(to_us "$p50")" "$(to_us "$p90")" "$(to_us "$p99")" "$(to_us "$p999")" "${ok_pct}"
+  # Compute average of P50/P90/P99/P99.9 in microseconds
+  local avg_pct_us="N/A"
+  if [[ "$p50" != "N/A" ]] && [[ "$p90" != "N/A" ]] && [[ "$p99" != "N/A" ]] && [[ "$p999" != "N/A" ]]; then
+    avg_pct_us=$(awk "BEGIN {printf \"%.1f\", ($p50 + $p90 + $p99 + $p999) / 4.0 * 1000000}" 2>/dev/null || echo "N/A")
+  fi
+
+  printf "  %-28s  %10s  %9s  %9s  %s\n" \
+    "$label" "${qps:-N/A}" "$(to_us "$avg")us" "${avg_pct_us}us" "${ok_pct}"
 }
 
 print_header() {
-  printf "  %-28s  %10s  %9s  %9s  %9s  %9s  %9s  %s\n" \
-    "Test" "QPS" "Avg(us)" "P50(us)" "P90(us)" "P99(us)" "P99.9us" "OK%"
-  printf "  %-28s  %10s  %9s  %9s  %9s  %9s  %9s  %s\n" \
-    "----------------------------" "----------" "---------" "---------" "---------" "---------" "---------" "------"
+  printf "  %-28s  %10s  %9s  %9s  %s\n" \
+    "Test" "QPS" "Avg(us)" "AvgPct(us)" "OK%"
+  printf "  %-28s  %10s  %9s  %9s  %s\n" \
+    "----------------------------" "----------" "---------" "----------" "------"
+  printf "  %-28s  %10s  %9s  %9s\n" \
+    "" "" "  (mean)" "(mean of P50/P90/P99/P99.9)"
 }
 
 collect_ztunnel_stats() {

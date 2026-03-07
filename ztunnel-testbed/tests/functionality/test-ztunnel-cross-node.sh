@@ -42,6 +42,7 @@ source "${PROJECT_ROOT}/config/cluster.sh" 2>/dev/null || true
 NS="${APP_NAMESPACE:-grimlock}"
 
 test_start "ztunnel cross-node traffic (HBONE tunnel)"
+test_desc "Tests pod-to-pod across DIFFERENT nodes via HBONE mTLS tunnel. Core ztunnel data path."
 
 # Check multi-node apps exist
 client1=$(kubectl get pods -n "$NS" -l app=curl-client-node1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)

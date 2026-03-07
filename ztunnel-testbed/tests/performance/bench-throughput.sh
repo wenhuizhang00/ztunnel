@@ -32,6 +32,8 @@ run_throughput() {
   echo ""
   echo "=================================================================="
   echo "  THROUGHPUT: Payload Size Sweep ($mode, $topo_label)"
+  echo "  Measures maximum QPS for POST requests with varying body sizes."
+  echo "  Higher QPS = better throughput. Compare ambient vs baseline."
   echo "  Path: $client → $topo_label → fortio-server"
   echo "  Concurrency: $CONCURRENCY, Duration: $DURATION"
   echo "=================================================================="
@@ -49,6 +51,7 @@ run_throughput() {
     echo ""
     echo "=================================================================="
     echo "  THROUGHPUT: Concurrency Sweep ($mode, $topo_label)"
+    echo "  Increases concurrent connections to find peak QPS and saturation point."
     echo "=================================================================="
     echo ""
     print_header

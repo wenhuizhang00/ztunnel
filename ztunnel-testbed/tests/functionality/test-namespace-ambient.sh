@@ -25,6 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib.sh"
 
 test_start "Namespace ambient label"
+test_desc "Checks grimlock namespace has istio.io/dataplane-mode=ambient. Pods need this for mesh."
 
 label=$(kubectl get namespace grimlock -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}' 2>/dev/null || true)
 detail "grimlock istio.io/dataplane-mode: ${label:-<not set>}"
