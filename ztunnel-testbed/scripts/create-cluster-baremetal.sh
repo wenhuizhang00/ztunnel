@@ -193,6 +193,31 @@ _dbg "create-cluster-baremetal.sh:root-kubeconfig" "H2: checking root kubeconfig
 sudo mkdir -p /root/.kube
 sudo cp -f /etc/kubernetes/admin.conf /root/.kube/config
 
+# Persist KUBECONFIG and NO_PROXY so kubectl works in new shells and under sudo (H1, H6)
+_KC_LINE="export KUBECONFIG=\$HOME/.kube/config"
+_NP_LINE="export NO_PROXY=\"localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}\""
+_np_line="export no_proxy=\"\$NO_PROXY\""
+_MARKER="# Added by ztunnel-testbed create-cluster-baremetal.sh"
+if ! grep -qF "ztunnel-testbed create-cluster" "$HOME/.bashrc" 2>/dev/null; then
+  { echo ""; echo "$_MARKER"; echo "$_KC_LINE"; echo "$_NP_LINE"; echo "$_np_line"; } >> "$HOME/.bashrc"
+  log_ok "KUBECONFIG + NO_PROXY added to ~/.bashrc"
+fi
+
+# Write system-wide profile drop-in so 'sudo kubectl' and all users get NO_PROXY (H6)
+sudo tee /etc/profile.d/k8s-no-proxy.sh >/dev/null <<NOPROXY_EOF
+# Kubernetes cluster proxy bypass (written by ztunnel-testbed)
+export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}"
+export no_proxy="\$NO_PROXY"
+NOPROXY_EOF
+log_ok "NO_PROXY written to /etc/profile.d/k8s-no-proxy.sh"
+
+# Also write to /etc/environment for non-login sudo (H6)
+if ! grep -q 'NO_PROXY' /etc/environment 2>/dev/null; then
+  echo "NO_PROXY=\"localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}\"" | sudo tee -a /etc/environment >/dev/null
+  echo "no_proxy=\"localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}\"" | sudo tee -a /etc/environment >/dev/null
+  log_ok "NO_PROXY written to /etc/environment"
+fi
+
 # Wait for API server to be ready (retry up to 30s)
 for i in {1..30}; do
   if kubectl get nodes &>/dev/null; then
@@ -204,8 +229,10 @@ done
 
 # #region agent log
 _kubectl_out=$(kubectl get nodes -o wide 2>&1 || true)
-_sudo_kubectl_out=$(sudo kubectl get nodes -o wide 2>&1 || true)
-_dbg "create-cluster-baremetal.sh:post-verify" "H1,H2,H3,H4: kubectl verification" "{\"kubectl_works\":\"$(kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_kubectl_works\":\"$(sudo kubectl get nodes &>/dev/null && echo yes || echo no)\",\"kubectl_output\":\"$(echo "$_kubectl_out" | head -3 | tr '\n' '|')\",\"sudo_kubectl_output\":\"$(echo "$_sudo_kubectl_out" | head -3 | tr '\n' '|')\"}"
+_sudo_kubectl_out=$(sudo -E kubectl get nodes -o wide 2>&1 || true)
+_sudo_no_e_out=$(sudo kubectl get nodes -o wide 2>&1 || true)
+_noproxy_healthz=$(curl -sk --noproxy '*' https://10.200.15.195:6443/healthz 2>/dev/null || echo "FAIL")
+_dbg "create-cluster-baremetal.sh:post-verify" "H1,H2,H6: kubectl verification" "{\"kubectl_works\":\"$(kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_E_kubectl_works\":\"$(sudo -E kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_kubectl_works\":\"$(sudo kubectl get nodes &>/dev/null && echo yes || echo no)\",\"NO_PROXY\":\"${NO_PROXY:-unset}\",\"HTTPS_PROXY\":\"${HTTPS_PROXY:-unset}\",\"HTTP_PROXY\":\"${HTTP_PROXY:-unset}\",\"noproxy_healthz\":\"${_noproxy_healthz}\",\"kubectl_output\":\"$(echo "$_kubectl_out" | head -2 | tr '\n' '|')\",\"sudo_E_output\":\"$(echo "$_sudo_kubectl_out" | head -2 | tr '\n' '|')\",\"sudo_no_E_output\":\"$(echo "$_sudo_no_e_out" | head -2 | tr '\n' '|')\"}"
 # #endregion
 
 # Rename context to grimlock-cell (matches KUBE_CONTEXT default)
@@ -284,15 +311,18 @@ else
   echo ""
 fi
 echo ""
-log_ok "Cluster ready. To use kubectl in THIS shell, run:"
+log_ok "Cluster ready. kubectl is configured for user '$USER' and root."
 echo ""
+echo "  # In THIS shell (already active):"
 echo "  export KUBECONFIG=\$HOME/.kube/config"
 echo ""
-echo "  # If kubectl still fails (localhost:8080), KUBECONFIG may be set elsewhere. Run:"
-echo "  unset KUBECONFIG"
-echo "  export KUBECONFIG=\$HOME/.kube/config"
+echo "  # New shells: KUBECONFIG is auto-set via ~/.bashrc"
+echo "  # 'sudo kubectl' also works (config at /root/.kube/config)"
 echo ""
 # #region agent log
-_dbg "create-cluster-baremetal.sh:final" "ALL: final cluster state" "{\"KUBECONFIG_env\":\"${KUBECONFIG:-unset}\",\"user_kubectl\":\"$(kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"sudo_kubectl\":\"$(sudo kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"api_server_healthy\":\"$(curl -sk https://$(grep 'server:' $HOME/.kube/config 2>/dev/null | head -1 | awk '{print $2}' | sed 's|https://||')/healthz 2>/dev/null || echo no)\"}"
+_profile_exists=$(test -f /etc/profile.d/k8s-no-proxy.sh && echo yes || echo no)
+_etc_env_has_noproxy=$(grep -q NO_PROXY /etc/environment 2>/dev/null && echo yes || echo no)
+_bashrc_has_noproxy=$(grep -q NO_PROXY "$HOME/.bashrc" 2>/dev/null && echo yes || echo no)
+_dbg "create-cluster-baremetal.sh:final" "ALL,H6: final cluster state" "{\"KUBECONFIG_env\":\"${KUBECONFIG:-unset}\",\"NO_PROXY\":\"${NO_PROXY:-unset}\",\"profile_drop_in\":\"${_profile_exists}\",\"etc_env_noproxy\":\"${_etc_env_has_noproxy}\",\"bashrc_noproxy\":\"${_bashrc_has_noproxy}\",\"user_kubectl\":\"$(kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"sudo_kubectl\":\"$(sudo kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"api_healthy\":\"$(curl -sk --noproxy '*' https://10.200.15.195:6443/healthz 2>/dev/null || echo no)\"}"
 # #endregion
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
