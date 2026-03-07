@@ -1,0 +1,156 @@
+# =============================================================================
+# Fortio cross-node performance infrastructure (multi-node only)
+# =============================================================================
+# Architecture for cross-node benchmarks:
+#   fortio-client (node1/control-plane) → ztunnel → fortio-server (node2/worker)
+#
+# For same-node comparison:
+#   fortio-client (node1) → ztunnel → fortio-server-local (node1)
+# =============================================================================
+
+# --- fortio-server pinned to worker (node2) ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio-server-node2
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: fortio-server-node2
+    topology: node2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio-server-node2
+  template:
+    metadata:
+      labels:
+        app: fortio-server-node2
+        topology: node2
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      containers:
+        - name: fortio
+          image: ${FORTIO_IMAGE}
+          args: ["server"]
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortio-server-node2
+  namespace: ${APP_NAMESPACE}
+spec:
+  selector:
+    app: fortio-server-node2
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+# --- fortio-server pinned to control-plane (node1) for same-node comparison ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio-server-node1
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: fortio-server-node1
+    topology: node1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio-server-node1
+  template:
+    metadata:
+      labels:
+        app: fortio-server-node1
+        topology: node1
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: fortio
+          image: ${FORTIO_IMAGE}
+          args: ["server"]
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortio-server-node1
+  namespace: ${APP_NAMESPACE}
+spec:
+  selector:
+    app: fortio-server-node1
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+# --- fortio-client pinned to control-plane (node1) for cross-node tests ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio-client-node1
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: fortio-client-node1
+    topology: node1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio-client-node1
+  template:
+    metadata:
+      labels:
+        app: fortio-client-node1
+        topology: node1
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: fortio
+          image: ${FORTIO_IMAGE}
+          args: ["server"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi

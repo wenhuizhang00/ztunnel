@@ -64,12 +64,19 @@ if [[ "${NODE_COUNT:-1}" -ge 2 ]]; then
   log_step "DEPLOY" "Multi-node detected ($NODE_COUNT nodes). Deploying cross-node test apps..."
   render_manifest "${PROJECT_ROOT}/manifests/sample-apps/cross-node-apps.yaml.template" "${MANIFEST_CACHE}/cross-node-apps.yaml"
   kubectl apply -f "${MANIFEST_CACHE}/cross-node-apps.yaml"
+  # Deploy cross-node fortio for performance tests
+  render_manifest "${PROJECT_ROOT}/manifests/performance/fortio-cross-node.yaml.template" "${MANIFEST_CACHE}/fortio-cross-node.yaml"
+  kubectl apply -f "${MANIFEST_CACHE}/fortio-cross-node.yaml"
+
   log_step "ROLLOUT" "Waiting for cross-node apps (timeout 120s each)..."
   kubectl rollout status deployment/http-echo-node1 -n "${APP_NAMESPACE}" --timeout=120s
   kubectl rollout status deployment/http-echo-node2 -n "${APP_NAMESPACE}" --timeout=120s
   kubectl rollout status deployment/curl-client-node1 -n "${APP_NAMESPACE}" --timeout=120s
   kubectl rollout status deployment/curl-client-node2 -n "${APP_NAMESPACE}" --timeout=120s
-  log_step_ok "DEPLOY" "Cross-node apps ready"
+  kubectl rollout status deployment/fortio-server-node1 -n "${APP_NAMESPACE}" --timeout=120s 2>/dev/null || true
+  kubectl rollout status deployment/fortio-server-node2 -n "${APP_NAMESPACE}" --timeout=120s 2>/dev/null || true
+  kubectl rollout status deployment/fortio-client-node1 -n "${APP_NAMESPACE}" --timeout=120s 2>/dev/null || true
+  log_step_ok "DEPLOY" "Cross-node apps ready (func + perf)"
 else
   log_info "Single-node cluster. Cross-node test apps skipped."
 fi

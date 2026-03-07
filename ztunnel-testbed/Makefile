@@ -4,7 +4,7 @@
 # Convenience targets for common operations
 # =============================================================================
 
-.PHONY: setup create install deploy build-images load-images test-func test-list test-perf bench-ambient bench-baseline bench-quick install-prereqs-baremetal inspect clean help
+.PHONY: setup create install deploy build-images load-images test-func test-list test-perf bench-throughput bench-latency bench-throughput-cross bench-latency-cross bench-ambient bench-baseline bench-quick install-prereqs-baremetal inspect clean help
 
 SHELL := /bin/bash
 
@@ -52,14 +52,29 @@ test-func:
 test-list:
 	./scripts/run-functionality-tests.sh --list
 
-# Performance tests: throughput by payload size, P99 latency, HTTP app benchmark
-#   make test-perf                    # ambient + baseline comparison
-#   make bench-ambient                # ambient only
-#   make bench-baseline               # baseline only
-#   make bench-quick                  # quick run (shorter duration, skip sweep)
-#   CONCURRENCY=8 DURATION=30s make test-perf  # custom params
+# Performance tests
+#   make test-perf                           # all benchmarks (auto-detects topology)
+#   make bench-throughput                    # throughput only
+#   make bench-latency                       # latency only
+#   make bench-throughput-cross              # throughput, cross-node (multi-node)
+#   make bench-latency-cross                 # latency, cross-node (multi-node)
+#   make bench-ambient                       # ambient only
+#   make bench-baseline                      # baseline only
+#   make bench-quick                         # quick run (5s, skip sweep)
 test-perf:
 	./scripts/run-performance-tests.sh
+
+bench-throughput:
+	BENCH=throughput ./scripts/run-performance-tests.sh
+
+bench-latency:
+	BENCH=latency ./scripts/run-performance-tests.sh
+
+bench-throughput-cross:
+	BENCH=throughput TOPOLOGY=cross-node ./scripts/run-performance-tests.sh
+
+bench-latency-cross:
+	BENCH=latency TOPOLOGY=cross-node ./scripts/run-performance-tests.sh
 
 bench-ambient:
 	MODE=ambient ./scripts/run-performance-tests.sh
@@ -94,10 +109,14 @@ help:
 	@echo "    make test-func TEST=--all   - Run all functionality tests"
 	@echo "    make test-func TEST=pod     - Run tests matching 'pod'"
 	@echo "    make test-list              - List available tests"
-	@echo "    make test-perf              - Full performance suite (throughput + latency + HTTP)"
-	@echo "    make bench-ambient          - Performance test (ambient only)"
-	@echo "    make bench-baseline         - Performance test (baseline only)"
-	@echo "    make bench-quick            - Quick benchmark (5s, no concurrency sweep)"
+	@echo "    make test-perf              - Full performance suite (auto-detects topology)"
+	@echo "    make bench-throughput       - Throughput test (single-node)"
+	@echo "    make bench-latency          - Latency test (single-node)"
+	@echo "    make bench-throughput-cross  - Throughput test (cross-node, multi-node)"
+	@echo "    make bench-latency-cross     - Latency test (cross-node, multi-node)"
+	@echo "    make bench-ambient          - All benchmarks (ambient only)"
+	@echo "    make bench-baseline         - All benchmarks (baseline only)"
+	@echo "    make bench-quick            - Quick benchmark (5s, no sweep)"
 	@echo ""
 	@echo "  Other:"
 	@echo "    make build-images       - Build local http-echo, curl-client, fortio images"

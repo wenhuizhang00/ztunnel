@@ -145,19 +145,28 @@ make test-perf
 | `make install-cilium` | Install Cilium CNI (no Helm, Istio compatible) |
 | `make deploy` | Deploy sample apps (+ cross-node apps if multi-node) |
 
-### Testing
+### Functionality Tests
 
 | Target | Description |
 |--------|-------------|
-| `make test-func` | Interactive test menu (pick tests to run) |
-| `make test-func TEST=--all` | Run all functionality tests (CI-friendly) |
+| `make test-func` | Interactive menu (pick tests to run) |
+| `make test-func TEST=--all` | Run all 17 functionality tests (CI-friendly) |
 | `make test-func TEST=pod` | Run tests matching "pod" |
 | `make test-func TEST=ztunnel` | Run all ztunnel tests |
-| `make test-list` | List available functionality tests |
-| `make test-perf` | Full performance suite (throughput + latency + HTTP + sweep) |
-| `make bench-ambient` | Performance test (ambient only) |
-| `make bench-baseline` | Performance test (baseline only) |
-| `make bench-quick` | Quick benchmark (5s per test, no concurrency sweep) |
+| `make test-list` | List available tests |
+
+### Performance Tests
+
+| Target | Description |
+|--------|-------------|
+| `make test-perf` | Interactive menu (pick benchmark type and topology) |
+| `make bench-throughput` | Throughput test (single-node) |
+| `make bench-latency` | Latency test (single-node) |
+| `make bench-throughput-cross` | Throughput test (cross-node, multi-node) |
+| `make bench-latency-cross` | Latency test (cross-node, multi-node) |
+| `make bench-ambient` | All benchmarks (ambient only) |
+| `make bench-baseline` | All benchmarks (baseline only) |
+| `make bench-quick` | Quick benchmark (5s, no sweep) |
 
 ### Other
 
@@ -351,43 +360,82 @@ See [Functionality Testing Guide](docs/TESTING.md) for full documentation.
 
 ## Performance Tests
 
-Comprehensive benchmark suite using **fortio** with a dedicated client/server architecture.
+Comprehensive benchmark suite using **fortio** with a dedicated client/server architecture. Separate **throughput** and **latency** tests, each with **single-node** and **cross-node** (multi-node) variants.
 
 ### Test architecture
 
 ```
-Ambient namespace (grimlock):
-  fortio-client  →  ztunnel (mTLS/HBONE)  →  fortio-server:8080
+Single-node:
+  fortio-client  →  ztunnel (local mTLS)  →  fortio-server     (same node)
 
-Baseline namespace (grimlock-baseline):
-  fortio-client  →  fortio-server:8080  (direct, no mesh)
+Cross-node (multi-node):
+  fortio-client (node1)  →  ztunnel HBONE tunnel  →  fortio-server (node2)
+
+Baseline (no mesh):
+  fortio-client  →  fortio-server  (direct, no ztunnel)
 ```
 
-Both namespaces have identical `fortio-server` (accepts load, runs `fortio server`) and `fortio-client` (generates load via `kubectl exec`) pods. Ambient routes through ztunnel with mTLS; baseline is direct.
+### Interactive mode
+
+Running `make test-perf` shows an interactive menu:
+
+```
+Performance Benchmarks
+─────────────────────────────────────────
+
+  Cluster: grimlock-cell (2 node(s))
+
+  Single-node tests:
+    1) Throughput test (payload sizes + concurrency sweep)
+    2) Latency test (P50/P90/P99/P99.9 in microseconds)
+    3) Both throughput + latency
+
+  Cross-node tests (multi-node):
+    4) Throughput test (cross-node HBONE tunnel)
+    5) Latency test (cross-node HBONE tunnel)
+    6) Both throughput + latency (cross-node)
+
+  Comparison:
+    7) Ambient only (all benchmarks)
+    8) Baseline only (all benchmarks)
+    9) Quick benchmark (5s per test, skip sweep)
+
+    0) Run ALL benchmarks (auto-detect topology)
+
+Select benchmark [0-9]:
+```
 
 ### Benchmark categories
 
-| Category | What it measures |
-|----------|-----------------|
-| **Throughput by payload size** | QPS for POST with 64, 128, 256, 512, 1024, 1500 byte payloads |
-| **P99 latency by payload size** | Avg, P50, P90, P99, P99.9 latency per payload size |
-| **HTTP application benchmark** | GET, GET (no keep-alive), POST 1KB, burst c=32, burst c=64 |
-| **Concurrency sweep** | QPS and latency at c=1, 2, 4, 8, 16, 32, 64 |
-| **ztunnel resource usage** | CPU and memory of ztunnel pods before/after load |
-| **Ambient vs baseline** | All above for both modes; side-by-side comparison |
+| Category | Throughput test | Latency test |
+|----------|----------------|--------------|
+| **Payload sizes** | Max QPS for 64-1500B POST | P50/P90/P99/P99.9 in microseconds |
+| **HTTP methods** | GET, POST, burst c=32/64 | GET c=1, no-keepalive c=1, POST c=1, GET c=4/16/64 |
+| **Concurrency sweep** | QPS at c=1,4,8,16,32,64,128 | Latency at c=1,4,16,64 |
+| **ztunnel resources** | CPU/memory before and after | CPU/memory before and after |
+| **Ambient vs baseline** | Both modes compared | Both modes compared |
 
-### Running benchmarks
+### Make targets
 
 ```bash
-make test-perf                              # full suite: ambient + baseline
-make bench-ambient                          # ambient only
-make bench-baseline                         # baseline only
-make bench-quick                            # quick: 5s per test, skip sweep
+# Interactive menu
+make test-perf
+
+# Specific benchmarks
+make bench-throughput               # throughput, single-node
+make bench-latency                  # latency, single-node
+make bench-throughput-cross         # throughput, cross-node (multi-node)
+make bench-latency-cross            # latency, cross-node (multi-node)
+
+# Mode selection
+make bench-ambient                  # all benchmarks, ambient only
+make bench-baseline                 # all benchmarks, baseline only
+make bench-quick                    # quick: 5s per test, skip sweep
 
 # Custom parameters
-CONCURRENCY=8 DURATION=30s make test-perf
-CONCURRENCY=64 DURATION=60s make bench-ambient
-PACKET_SIZES="64,1500" SKIP_SWEEP=1 make bench-ambient
+CONCURRENCY=64 DURATION=60s make bench-throughput
+PACKET_SIZES="64,1500" make bench-latency
+MODE=ambient TOPOLOGY=cross-node make test-perf
 ```
 
 ### Parameters
@@ -395,60 +443,53 @@ PACKET_SIZES="64,1500" SKIP_SWEEP=1 make bench-ambient
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MODE` | both | `ambient`, `baseline`, or `both` |
-| `CONCURRENCY` | 4 | Concurrent connections per test |
+| `BENCH` | all | `throughput`, `latency`, or `all` |
+| `TOPOLOGY` | local (auto) | `local` (single-node) or `cross-node` (multi-node) |
+| `CONCURRENCY` | 4 (throughput) / 1 (latency) | Concurrent connections |
 | `DURATION` | 20s | Duration per test |
-| `REQUESTS` | 0 (use duration) | Total requests per test (overrides DURATION) |
-| `PACKET_SIZES` | 64,128,256,512,1024,1500 | Comma-separated payload sizes in bytes |
+| `REQUESTS` | 0 (use duration) | Total requests (overrides DURATION) |
+| `PACKET_SIZES` | 64,128,256,512,1024,1500 | Payload sizes in bytes |
 | `SKIP_SWEEP` | 0 | Set to 1 to skip concurrency sweep |
 | `OUTPUT_DIR` | .bench-results | Results directory |
 
-### Sample output
+### Sample output (microseconds)
 
 ```
 ========================================================================
-  ztunnel-testbed Performance Report
-  Architecture: fortio-client → ztunnel (mTLS) → fortio-server
+  ztunnel-testbed THROUGHPUT Report
+  Nodes: 1   Topology: local
+  Mode: both  Concurrency: 4  Duration: 20s
 ========================================================================
 
   ztunnel resource usage (before ambient):
     ztunnel-mqqb7   12m    45Mi
 
 ==================================================================
-  Throughput & Latency by Payload Size - POST (ambient)
-  Path: fortio-client → ambient → fortio-server
+  THROUGHPUT: Payload Size Sweep (ambient, single-node)
+  Path: fortio-client → single-node → fortio-server
   Concurrency: 4, Duration: 20s
 ==================================================================
 
-  Test                          QPS      Avg(ms)  P50(ms)  P90(ms)  P99(ms)  P99.9ms  OK%
-  ----------------------------  --------  -------  -------  -------  -------  -------  ------
-  64B POST                      8234.5    0.486    0.412    0.823    1.567    3.012  100.0 %
-  128B POST                     7891.2    0.507    0.428    0.856    1.678    3.245  100.0 %
-  1500B POST                    5678.9    0.704    0.593    1.187    2.345    4.567  100.0 %
+  Test                          QPS       Avg(us)   P50(us)   P90(us)   P99(us)  P99.9us   OK%
+  ----------------------------  ---------  --------  --------  --------  --------  --------  ------
+  64B POST                      8234.5      486.0     412.0     823.0    1567.0    3012.0  100.0 %
+  128B POST                     7891.2      507.0     428.0     856.0    1678.0    3245.0  100.0 %
+  1500B POST                    5678.9      704.0     593.0    1187.0    2345.0    4567.0  100.0 %
 
 ==================================================================
-  HTTP Application Benchmark (ambient)
+  LATENCY: HTTP Methods (ambient, single-node)
+  Concurrency: 1 (low for accurate latency)
 ==================================================================
 
-  HTTP GET                      9123.4    0.438    0.378    0.756    1.456    2.890  100.0 %
-  GET (no keepalive)            3456.7    1.157    0.978    1.923    3.456    6.789  100.0 %
-  POST 1KB                      7234.5    0.553    0.467    0.934    1.823    3.567  100.0 %
-  GET burst (c=32)             12345.6    2.593    1.987    4.567    8.901   12.345  100.0 %
-  GET burst (c=64)             15678.9    4.082    3.210    6.543   12.345   18.901  100.0 %
+  GET (c=1)                     2345.6      426.0     398.0     534.0     789.0    1234.0  100.0 %
+  GET no-keepalive (c=1)         456.7     2189.0    1978.0    2923.0    4456.0    7789.0  100.0 %
+  POST 1KB (c=1)                2123.4      471.0     423.0     567.0     834.0    1345.0  100.0 %
 
   ztunnel resource usage (after ambient):
     ztunnel-mqqb7   85m    67Mi
-
-==================================================================
-  Summary: Ambient vs Baseline
-==================================================================
-
-  Typical overhead:
-    Latency:    +0.1-0.5ms P99 (mTLS handshake amortized over keep-alive)
-    Throughput: -5-15% (encryption/decryption overhead)
-    CPU:        ztunnel uses ~50-200m CPU per 10k QPS
 ```
 
-Reports saved to `.bench-results/report-<timestamp>.txt`.
+Reports saved to `.bench-results/<type>-<topology>-<timestamp>.txt`.
 
 Demo benchmarks for relative comparison; not for production capacity planning.
 
