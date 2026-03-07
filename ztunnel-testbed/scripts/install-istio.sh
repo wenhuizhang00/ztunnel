@@ -32,16 +32,25 @@ ISTIOCTL="${PROJECT_ROOT}/bin/istioctl"
 if [[ ! -x "${ISTIOCTL}" ]] || [[ ! -d "${PROJECT_ROOT}/.cache/istio-${ISTIO_VERSION}" ]]; then
   log_step "ISTIOCTL" "Downloading Istio ${ISTIO_VERSION} (network - may take 1-3 min)..."
   istio_dl_start=$(date +%s)
-  mkdir -p "${PROJECT_ROOT}/.cache"
-  cd "${PROJECT_ROOT}/.cache"
-  if [[ ! -d "istio-${ISTIO_VERSION}" ]]; then
-    export ISTIO_VERSION TARGET_OS TARGET_ARCH
-    curl -sL "https://istio.io/downloadIstio" | sh -
+  mkdir -p "${PROJECT_ROOT}/.cache" "${PROJECT_ROOT}/bin"
+
+  ISTIO_TARBALL="${PROJECT_ROOT}/.cache/istio-${ISTIO_VERSION}-${TARGET_OS}-${TARGET_ARCH}.tar.gz"
+  if [[ ! -f "$ISTIO_TARBALL" ]]; then
+    ISTIO_DL_URL="https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-${TARGET_OS}-${TARGET_ARCH}.tar.gz"
+    log_info "Fetching ${ISTIO_DL_URL}"
+    curl -sL --fail -o "$ISTIO_TARBALL" "$ISTIO_DL_URL" || {
+      log_error "Failed to download Istio ${ISTIO_VERSION} from GitHub. Check version and network."
+      rm -f "$ISTIO_TARBALL"
+      exit 1
+    }
   fi
-  mkdir -p "${PROJECT_ROOT}/bin"
+
+  if [[ ! -d "${PROJECT_ROOT}/.cache/istio-${ISTIO_VERSION}" ]]; then
+    tar xzf "$ISTIO_TARBALL" -C "${PROJECT_ROOT}/.cache"
+  fi
+
   cp -f "${PROJECT_ROOT}/.cache/istio-${ISTIO_VERSION}/bin/istioctl" "${ISTIOCTL}"
   chmod +x "${ISTIOCTL}"
-  cd "${PROJECT_ROOT}"
   log_step_ok "ISTIOCTL" "Istio downloaded" "$(( $(date +%s) - istio_dl_start ))s"
 fi
 log_ok "istioctl: $(${ISTIOCTL} version --short 2>/dev/null || ${ISTIOCTL} version 2>/dev/null | head -1)"
