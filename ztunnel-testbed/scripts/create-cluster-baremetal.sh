@@ -193,29 +193,51 @@ _dbg "create-cluster-baremetal.sh:root-kubeconfig" "H2: checking root kubeconfig
 sudo mkdir -p /root/.kube
 sudo cp -f /etc/kubernetes/admin.conf /root/.kube/config
 
-# Persist KUBECONFIG and NO_PROXY so kubectl works in new shells and under sudo (H1, H6)
-_KC_LINE="export KUBECONFIG=\$HOME/.kube/config"
-_NP_LINE="export NO_PROXY=\"localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}\""
-_np_line="export no_proxy=\"\$NO_PROXY\""
+# --- Fix H6: corporate proxy blocks kubectl unless NO_PROXY is set ---
+# The system's NO_PROXY has domain suffixes only (.0,.1,...) but NO cluster IP CIDRs.
+# The script sets NO_PROXY during execution, but it doesn't persist to the parent shell.
+# Three-layer fix: (1) bashrc for user shells, (2) sudoers env_keep, (3) kubectl wrapper
+_K8S_NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}"
+
+# Layer 1: Persist KUBECONFIG + NO_PROXY to bashrc for new interactive shells
 _MARKER="# Added by ztunnel-testbed create-cluster-baremetal.sh"
 if ! grep -qF "ztunnel-testbed create-cluster" "$HOME/.bashrc" 2>/dev/null; then
-  { echo ""; echo "$_MARKER"; echo "$_KC_LINE"; echo "$_NP_LINE"; echo "$_np_line"; } >> "$HOME/.bashrc"
+  cat >> "$HOME/.bashrc" <<BASHRC_EOF
+
+${_MARKER}
+export KUBECONFIG=\$HOME/.kube/config
+export NO_PROXY="\${NO_PROXY:+\${NO_PROXY},}${_K8S_NO_PROXY}"
+export no_proxy="\$NO_PROXY"
+BASHRC_EOF
   log_ok "KUBECONFIG + NO_PROXY added to ~/.bashrc"
 fi
 
-# Write system-wide profile drop-in so 'sudo kubectl' and all users get NO_PROXY (H6)
-sudo tee /etc/profile.d/k8s-no-proxy.sh >/dev/null <<NOPROXY_EOF
-# Kubernetes cluster proxy bypass (written by ztunnel-testbed)
-export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}"
-export no_proxy="\$NO_PROXY"
-NOPROXY_EOF
-log_ok "NO_PROXY written to /etc/profile.d/k8s-no-proxy.sh"
+# Layer 2: sudoers env_keep (works on systems that allow it)
+_SUDOERS_PROXY="/etc/sudoers.d/99-k8s-proxy-env"
+if [[ ! -f "$_SUDOERS_PROXY" ]]; then
+  echo 'Defaults env_keep += "NO_PROXY no_proxy KUBECONFIG"' | sudo tee "$_SUDOERS_PROXY" >/dev/null
+  sudo chmod 440 "$_SUDOERS_PROXY"
+  sudo visudo -cf "$_SUDOERS_PROXY" >/dev/null 2>&1 || { sudo rm -f "$_SUDOERS_PROXY"; log_warn "sudoers env_keep failed syntax check"; }
+fi
 
-# Also write to /etc/environment for non-login sudo (H6)
-if ! grep -q 'NO_PROXY' /etc/environment 2>/dev/null; then
-  echo "NO_PROXY=\"localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}\"" | sudo tee -a /etc/environment >/dev/null
-  echo "no_proxy=\"localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}\"" | sudo tee -a /etc/environment >/dev/null
-  log_ok "NO_PROXY written to /etc/environment"
+# Layer 3: kubectl wrapper at /usr/local/bin/kubectl (guaranteed to work with sudo)
+# sudo's secure_path includes /usr/local/bin, so 'sudo kubectl' uses the wrapper
+_REAL_KUBECTL=$(command -v kubectl 2>/dev/null)
+if [[ "$_REAL_KUBECTL" == "/usr/bin/kubectl" ]] || [[ "$_REAL_KUBECTL" == "/usr/local/bin/kubectl" && ! -f /usr/local/bin/.kubectl-wrapper ]]; then
+  [[ "$_REAL_KUBECTL" == "/usr/local/bin/kubectl" ]] && _REAL_KUBECTL="/usr/bin/kubectl"
+  sudo tee /usr/local/bin/kubectl >/dev/null <<WRAPPER_EOF
+#!/bin/bash
+# kubectl proxy-bypass wrapper (written by ztunnel-testbed)
+export NO_PROXY="\${NO_PROXY:+\${NO_PROXY},}${_K8S_NO_PROXY}"
+export no_proxy="\$NO_PROXY"
+if [[ -z "\${KUBECONFIG:-}" ]]; then
+  [[ -f "\$HOME/.kube/config" ]] && export KUBECONFIG="\$HOME/.kube/config"
+fi
+exec ${_REAL_KUBECTL} "\$@"
+WRAPPER_EOF
+  sudo chmod +x /usr/local/bin/kubectl
+  sudo touch /usr/local/bin/.kubectl-wrapper
+  log_ok "kubectl wrapper installed at /usr/local/bin/kubectl (proxy bypass)"
 fi
 
 # Wait for API server to be ready (retry up to 30s)
@@ -229,10 +251,12 @@ done
 
 # #region agent log
 _kubectl_out=$(kubectl get nodes -o wide 2>&1 || true)
-_sudo_kubectl_out=$(sudo -E kubectl get nodes -o wide 2>&1 || true)
-_sudo_no_e_out=$(sudo kubectl get nodes -o wide 2>&1 || true)
-_noproxy_healthz=$(curl -sk --noproxy '*' https://10.200.15.195:6443/healthz 2>/dev/null || echo "FAIL")
-_dbg "create-cluster-baremetal.sh:post-verify" "H1,H2,H6: kubectl verification" "{\"kubectl_works\":\"$(kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_E_kubectl_works\":\"$(sudo -E kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_kubectl_works\":\"$(sudo kubectl get nodes &>/dev/null && echo yes || echo no)\",\"NO_PROXY\":\"${NO_PROXY:-unset}\",\"HTTPS_PROXY\":\"${HTTPS_PROXY:-unset}\",\"HTTP_PROXY\":\"${HTTP_PROXY:-unset}\",\"noproxy_healthz\":\"${_noproxy_healthz}\",\"kubectl_output\":\"$(echo "$_kubectl_out" | head -2 | tr '\n' '|')\",\"sudo_E_output\":\"$(echo "$_sudo_kubectl_out" | head -2 | tr '\n' '|')\",\"sudo_no_E_output\":\"$(echo "$_sudo_no_e_out" | head -2 | tr '\n' '|')\"}"
+_sudo_out=$(sudo kubectl get nodes -o wide 2>&1 || true)
+_wrapper_exists=$(test -f /usr/local/bin/.kubectl-wrapper && echo yes || echo no)
+_which_kubectl=$(which kubectl 2>/dev/null || echo "N/A")
+_sudo_which=$(sudo which kubectl 2>/dev/null || echo "N/A")
+_sudoers_exists=$(test -f /etc/sudoers.d/99-k8s-proxy-env && echo yes || echo no)
+_dbg "create-cluster-baremetal.sh:post-verify" "H6-wrapper: kubectl verification" "{\"kubectl_works\":\"$(kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_kubectl_works\":\"$(sudo kubectl get nodes &>/dev/null && echo yes || echo no)\",\"wrapper_installed\":\"${_wrapper_exists}\",\"which_kubectl\":\"${_which_kubectl}\",\"sudo_which_kubectl\":\"${_sudo_which}\",\"sudoers_drop_in\":\"${_sudoers_exists}\",\"kubectl_output\":\"$(echo "$_kubectl_out" | head -2 | tr '\n' '|')\",\"sudo_output\":\"$(echo "$_sudo_out" | head -2 | tr '\n' '|')\"}"
 # #endregion
 
 # Rename context to grimlock-cell (matches KUBE_CONTEXT default)
@@ -313,16 +337,15 @@ fi
 echo ""
 log_ok "Cluster ready. kubectl is configured for user '$USER' and root."
 echo ""
-echo "  # In THIS shell (already active):"
-echo "  export KUBECONFIG=\$HOME/.kube/config"
+echo "  # In THIS shell, run once:"
+echo "  source ~/.bashrc"
 echo ""
-echo "  # New shells: KUBECONFIG is auto-set via ~/.bashrc"
-echo "  # 'sudo kubectl' also works (config at /root/.kube/config)"
+echo "  # All new shells and 'sudo kubectl' work automatically."
 echo ""
 # #region agent log
-_profile_exists=$(test -f /etc/profile.d/k8s-no-proxy.sh && echo yes || echo no)
-_etc_env_has_noproxy=$(grep -q NO_PROXY /etc/environment 2>/dev/null && echo yes || echo no)
-_bashrc_has_noproxy=$(grep -q NO_PROXY "$HOME/.bashrc" 2>/dev/null && echo yes || echo no)
-_dbg "create-cluster-baremetal.sh:final" "ALL,H6: final cluster state" "{\"KUBECONFIG_env\":\"${KUBECONFIG:-unset}\",\"NO_PROXY\":\"${NO_PROXY:-unset}\",\"profile_drop_in\":\"${_profile_exists}\",\"etc_env_noproxy\":\"${_etc_env_has_noproxy}\",\"bashrc_noproxy\":\"${_bashrc_has_noproxy}\",\"user_kubectl\":\"$(kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"sudo_kubectl\":\"$(sudo kubectl cluster-info 2>&1 | head -1 | tr '\"' \"'\")\",\"api_healthy\":\"$(curl -sk --noproxy '*' https://10.200.15.195:6443/healthz 2>/dev/null || echo no)\"}"
+_wrapper_check=$(test -f /usr/local/bin/.kubectl-wrapper && echo yes || echo no)
+_final_kubectl=$(kubectl cluster-info 2>&1 | head -1 | tr '"' "'")
+_final_sudo=$(sudo kubectl cluster-info 2>&1 | head -1 | tr '"' "'")
+_dbg "create-cluster-baremetal.sh:final" "H6-final: end-to-end verification" "{\"wrapper_installed\":\"${_wrapper_check}\",\"which_kubectl\":\"$(which kubectl 2>/dev/null)\",\"sudo_which\":\"$(sudo which kubectl 2>/dev/null)\",\"user_kubectl\":\"${_final_kubectl}\",\"sudo_kubectl\":\"${_final_sudo}\",\"api_healthy\":\"$(curl -sk --noproxy '*' https://10.200.15.195:6443/healthz 2>/dev/null || echo no)\"}"
 # #endregion
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
