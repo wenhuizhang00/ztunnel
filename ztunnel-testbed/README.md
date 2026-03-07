@@ -1,17 +1,18 @@
 # ztunnel-testbed
 
-A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kubernetes. Supports bare metal (kubeadm), functionality tests, and performance benchmarks.
+A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kubernetes. Supports single-node and multi-node bare metal (kubeadm), comprehensive functionality tests, and performance benchmarks.
 
 ## Features
 
-- **Kubernetes**: Existing cluster or bare metal (kubeadm, no k3s)
+- **Kubernetes**: Existing cluster or bare metal (kubeadm, single-node or multi-node)
 - **CNI**: Calico (default) or Cilium (no Helm, Cilium CLI)
 - **Istio ambient**: Installed via `istioctl`
 - **Gateway API CRDs**: For traffic routing
 - **Sample apps**: http-echo + curl-client in `grimlock` (ambient) and `grimlock-baseline` (non-ambient)
-- **Functionality tests**: Cluster, Istio, ztunnel, Pod-to-Pod, Service, workload visibility
-- **Performance tests**: fortio/curl, ambient vs baseline
-- **Inspection**: ztunnel workloads, logs, config
+- **Multi-node apps**: Node-pinned pods for cross-node ztunnel HBONE tunnel testing
+- **17 functionality tests**: Interactive menu, filter by name, or run all
+- **Performance suite**: Throughput by payload size, P99 latency, HTTP benchmarks, concurrency sweep
+- **Inspection**: ztunnel workloads, logs, certificates, config
 
 ## Dependencies
 
@@ -54,9 +55,10 @@ kubectl cluster-info
 make setup
 
 # Run tests
-make test-func          # interactive menu: pick which tests to run
+make test-func              # interactive menu: pick which tests to run
 make test-func TEST=--all   # run all tests non-interactively
-make test-perf
+make test-perf              # full performance suite
+make bench-quick            # quick performance check (5s per test)
 ```
 
 ### Option B: Bare metal - single node (control-plane runs workloads)
@@ -68,9 +70,12 @@ sudo ./scripts/install-baremetal-prereqs.sh
 # 1. Create cluster (control-plane also runs pods)
 make create-baremetal
 
-# 2. Install Istio + deploy sample apps + run tests
+# 2. Install Istio + deploy sample apps
 make setup
-make test-func
+
+# 3. Run tests
+make test-func              # interactive menu
+make test-perf              # performance benchmarks
 ```
 
 ### Option B2: Bare metal - multi-node (control-plane + worker)
@@ -86,9 +91,10 @@ WORKER_NODES="10.136.0.75" make create-baremetal
 make setup
 
 # 3. Run tests (includes same-node AND cross-node ztunnel tests)
-make test-func
-make test-func TEST=ztunnel-cross-node   # cross-node HBONE tunnel test
-make test-func TEST=ztunnel-local        # same-node ztunnel test
+make test-func                              # interactive menu
+make test-func TEST=ztunnel-cross-node      # cross-node HBONE tunnel test only
+make test-func TEST=ztunnel-local           # same-node ztunnel test only
+make test-perf                              # performance benchmarks
 ```
 
 Worker nodes are set up automatically via SSH. Requirements:
@@ -118,32 +124,47 @@ make test-perf
 |------|---------|-------------|
 | 1 | `make create` | Verify kubectl can reach cluster (or `make create-baremetal` on bare metal) |
 | 2 | `make install` | Install Istio ambient mode |
-| 3 | `make deploy` | Deploy sample apps |
-| 4 | `make test-func` | Run functionality tests |
-| 5 | `make test-perf` | Run performance tests |
+| 3 | `make deploy` | Deploy sample apps (+ cross-node apps if multi-node) |
+| 4 | `make test-func` | Run functionality tests (interactive) |
+| 5 | `make test-perf` | Run performance benchmarks |
 
 **Note**: `make create` only verifies connectivity. It does not create a cluster. Use `make create-baremetal` to create a cluster on bare metal.
 
 ## Make Targets
 
+### Setup
+
 | Target | Description |
 |--------|-------------|
 | `make setup` | Verify cluster + install Istio + deploy apps |
 | `make create` | Verify kubectl cluster connectivity |
-| `make create-baremetal` | Create cluster on bare metal (kubeadm) |
+| `make create-baremetal` | Create single-node cluster on bare metal (kubeadm) |
+| `make create-baremetal-multi WORKER=10.136.0.75` | Create multi-node cluster |
 | `make install-prereqs-baremetal` | Print install command for bare metal deps |
 | `make install` | Install Istio ambient only |
 | `make install-cilium` | Install Cilium CNI (no Helm, Istio compatible) |
-| `make deploy` | Deploy sample apps only |
-| `make build-images` | Build local http-echo, curl-client, fortio images |
-| `make load-images` | Load local images into kind/minikube |
+| `make deploy` | Deploy sample apps (+ cross-node apps if multi-node) |
+
+### Testing
+
+| Target | Description |
+|--------|-------------|
 | `make test-func` | Interactive test menu (pick tests to run) |
-| `make test-func TEST=--all` | Run all functionality tests |
+| `make test-func TEST=--all` | Run all functionality tests (CI-friendly) |
 | `make test-func TEST=pod` | Run tests matching "pod" |
+| `make test-func TEST=ztunnel` | Run all ztunnel tests |
 | `make test-list` | List available functionality tests |
-| `make test-perf` | Run performance tests |
+| `make test-perf` | Full performance suite (throughput + latency + HTTP + sweep) |
 | `make bench-ambient` | Performance test (ambient only) |
 | `make bench-baseline` | Performance test (baseline only) |
+| `make bench-quick` | Quick benchmark (5s per test, no concurrency sweep) |
+
+### Other
+
+| Target | Description |
+|--------|-------------|
+| `make build-images` | Build local http-echo, curl-client, fortio images |
+| `make load-images` | Load local images into kind/minikube |
 | `make inspect` | Inspect ztunnel state |
 | `make clean` | Uninstall Istio, remove sample apps |
 
@@ -200,21 +221,21 @@ ztunnel-testbed/
 │       └── Dockerfile
 ├── config/
 │   ├── versions.sh          # Istio, Gateway API versions
-│   ├── cluster.sh           # KUBE_CONTEXT (default: grimlock-cell)
-│   ├── baremetal.sh         # Bare metal: CNI, K8S_VERSION, POD_NETWORK_CIDR
+│   ├── cluster.sh           # KUBE_CONTEXT, APP_NAMESPACE
+│   ├── baremetal.sh         # Bare metal: CNI, K8S_VERSION, WORKER_NODES
+│   ├── images.sh            # Container images (upstream or local)
 │   ├── cilium.sh            # Cilium version
-│   ├── kubeadm-config.yaml  # kubeadm init config
 │   ├── kubeadm-config.yaml.template
 │   ├── local.sh.example     # Template for overrides
 │   └── local.sh             # (gitignored) Your overrides
 ├── manifests/
-│   ├── namespace-ambient.yaml      # grimlock namespace with ambient label
-│   ├── sample-apps/                # -> grimlock namespace
-│   │   └── simple-http-server.yaml.template
-│   ├── sample-apps-baseline/       # -> grimlock-baseline namespace
+│   ├── sample-apps/
+│   │   ├── simple-http-server.yaml.template     # http-echo + curl-client
+│   │   └── cross-node-apps.yaml.template        # Node-pinned pods (multi-node)
+│   ├── sample-apps-baseline/
 │   │   └── http-echo-baseline.yaml.template
 │   ├── performance/
-│   │   └── fortio-client.yaml
+│   │   └── fortio-client.yaml.template
 │   └── cni/
 │       └── calico-custom-resources.yaml
 ├── scripts/
@@ -229,12 +250,13 @@ ztunnel-testbed/
 │   ├── run-performance-tests.sh
 │   ├── ztunnel-inspect.sh
 │   ├── setup-all.sh
-│   └── cleanup.sh
-├── scripts/baremetal/
-│   └── join-worker.sh
+│   ├── cleanup.sh
+│   └── baremetal/
+│       ├── join-worker.sh
+│       └── setup-worker.sh       # Auto-install prereqs + join via SSH
 ├── tests/
-│   ├── lib.sh                          # Test helpers: pass/fail/skip/detail
-│   ├── functionality/
+│   ├── lib.sh                    # Test helpers: pass/fail/skip/detail + timing
+│   ├── functionality/            # 17 test scripts (auto-discovered)
 │   │   ├── test-cluster-ready.sh
 │   │   ├── test-cni-ready.sh
 │   │   ├── test-gateway-api.sh
@@ -249,11 +271,14 @@ ztunnel-testbed/
 │   │   ├── test-dns-resolution.sh
 │   │   ├── test-pod-to-pod.sh
 │   │   ├── test-pod-to-service.sh
+│   │   ├── test-ztunnel-local.sh         # Same-node ztunnel test
+│   │   ├── test-ztunnel-cross-node.sh    # Cross-node HBONE tunnel test
 │   │   └── test-mtls-policy.sh
 │   └── performance/
-│       └── run-bench.sh
+│       └── run-bench.sh          # Throughput, latency, HTTP benchmarks
 ├── docs/
 │   ├── BAREMETAL.md
+│   ├── TESTING.md
 │   └── STRUCTURE.md
 ├── Makefile
 └── README.md
@@ -274,9 +299,13 @@ KUBE_CONTEXT="grimlock-cell"   # Default; override if your context has a differe
 # Istio platform (GKE, EKS, k3d, minikube)
 ISTIO_PLATFORM="gke"
 
-# Bare metal CNI
-CNI_PROVIDER="cilium"       # calico (default) | cilium
+# Bare metal
+CNI_PROVIDER="cilium"                  # calico (default) | cilium
 CILIUM_VERSION="1.16.0"
+
+# Multi-node (auto-join workers via SSH)
+WORKER_NODES="10.136.0.75"            # comma-separated worker IPs
+WORKER_SSH_USER="gsadmin"             # SSH user for worker nodes
 ```
 
 ## Functionality Tests
@@ -285,74 +314,82 @@ Run interactively to pick specific tests, or run all at once:
 
 ```bash
 make test-func                  # interactive menu
-make test-func TEST=--all       # run all
+make test-func TEST=--all       # run all (CI-friendly)
 make test-func TEST=ztunnel     # run tests matching "ztunnel"
 make test-func TEST=pod-to-pod  # run a single test
 make test-list                  # list all available tests
 ```
 
+### Infrastructure tests (no sample apps needed)
+
 | Test | Description |
 |------|-------------|
-| test-cluster-ready | All nodes Ready |
-| test-cni-ready | istio-cni-node DaemonSet ready |
-| test-gateway-api | Gateway API CRDs installed |
-| test-istiod-ready | Istiod deployment ready |
-| test-ztunnel-ready | ztunnel DaemonSet ready |
-| test-ztunnel-certs | ztunnel mTLS certificates active |
-| test-ztunnel-logs | ztunnel healthy (no crash loops/panics) |
-| test-ztunnel-workloads | `istioctl ztunnel-config workloads` |
-| test-namespace-ambient | grimlock has ambient label |
-| test-ambient-vs-baseline | Ambient vs non-ambient namespace isolation |
-| test-sample-app-running | http-echo and curl-client running |
-| test-dns-resolution | In-cluster DNS resolves service names |
-| test-pod-to-pod | Pod → Pod IP (via ztunnel) |
-| test-pod-to-service | Pod → Service → Pod |
-| test-ztunnel-local | Same-node pod-to-pod through ztunnel (local path) |
-| test-ztunnel-cross-node | Cross-node pod-to-pod through HBONE tunnel (multi-node only) |
-| test-mtls-policy | mTLS/policy placeholder (extend as needed) |
+| test-cluster-ready | All nodes Ready. Shows each node's status. |
+| test-cni-ready | istio-cni-node DaemonSet fully rolled out on all nodes. |
+| test-gateway-api | Gateway API CRDs (Gateway, HTTPRoute) installed. |
+| test-istiod-ready | Istiod control plane running with version info. |
+| test-ztunnel-ready | ztunnel DaemonSet ready on all nodes with image version. |
+| test-ztunnel-certs | ztunnel has active SPIFFE mTLS certificates. |
+| test-ztunnel-logs | ztunnel not crash-looping, no FATAL/panic in logs. |
+
+### Application tests (need `make deploy`)
+
+| Test | Description |
+|------|-------------|
+| test-namespace-ambient | `grimlock` namespace has `istio.io/dataplane-mode=ambient`. |
+| test-ambient-vs-baseline | `grimlock` has ambient, `grimlock-baseline` does not. Both have pods. |
+| test-sample-app-running | http-echo and curl-client deployments have ready pods. |
+| test-dns-resolution | CoreDNS resolves `kubernetes.default` and `http-echo` from inside pods. |
+| test-pod-to-pod | curl-client → http-echo pod IP (direct, through ztunnel). |
+| test-pod-to-service | curl-client → http-echo ClusterIP Service (DNS + ztunnel). |
+| test-ztunnel-workloads | `istioctl ztunnel-config workloads` shows grimlock workloads. |
+| test-ztunnel-local | Same-node pod-to-pod through local ztunnel. |
+| test-ztunnel-cross-node | Cross-node HBONE tunnel: node1→node2 and node2→node1 (multi-node only). |
+| test-mtls-policy | mTLS/policy placeholder (extend with PeerAuthentication checks). |
+
+See [Functionality Testing Guide](docs/TESTING.md) for full documentation.
 
 ## Performance Tests
 
-Comprehensive benchmark suite measuring throughput, P99 latency, and HTTP application performance.
+Comprehensive benchmark suite using **fortio** to measure throughput, latency percentiles, and HTTP application performance for both ambient (through ztunnel) and baseline (direct) modes.
 
-### Test matrix
+### Benchmark categories
 
-| Benchmark | What it measures |
-|-----------|-----------------|
-| **Throughput by payload size** | QPS and Mbps for 64, 128, 256, 512, 1024, 1500 byte payloads |
+| Category | What it measures |
+|----------|-----------------|
+| **Throughput by payload size** | QPS for 64, 128, 256, 512, 1024, 1500 byte payloads |
 | **P99 latency by payload size** | Avg, P50, P90, P99, P99.9 latency per payload size |
-| **HTTP application benchmark** | GET, GET (no keep-alive), POST 1KB, high-concurrency burst |
-| **Concurrency sweep** | QPS vs latency at c=1,2,4,8,16,32,64 |
-| **Ambient vs baseline** | All above run for both modes; compare mTLS overhead |
+| **HTTP application benchmark** | GET, GET (no keep-alive), POST 1KB, high-concurrency burst (c=32) |
+| **Concurrency sweep** | QPS and latency at c=1, 2, 4, 8, 16, 32, 64 |
+| **Ambient vs baseline** | All above run for both modes for side-by-side comparison |
 
-### Running
+### Running benchmarks
 
 ```bash
-make test-perf                         # full suite: ambient + baseline comparison
-make bench-ambient                     # ambient only
-make bench-baseline                    # baseline only
-make bench-quick                       # quick run (5s, skip concurrency sweep)
+make test-perf                              # full suite: ambient + baseline (~5 min)
+make bench-ambient                          # ambient only
+make bench-baseline                         # baseline only
+make bench-quick                            # quick: 5s per test, skip concurrency sweep
 
-# Custom params
+# Custom parameters
 CONCURRENCY=8 DURATION=30s make test-perf
 PACKET_SIZES="64,1500" SKIP_SWEEP=1 make bench-ambient
+MODE=ambient DURATION=60s CONCURRENCY=16 make test-perf
 ```
 
 ### Parameters
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MODE` | both | ambient, baseline, or both |
-| `CONCURRENCY` | 4 | Concurrent connections |
-| `DURATION` | 15s | Per-test duration |
-| `REQUESTS` | 0 (use duration) | Total requests per test |
+| `MODE` | both | `ambient`, `baseline`, or `both` |
+| `CONCURRENCY` | 4 | Concurrent connections per test |
+| `DURATION` | 20s | Duration per test |
+| `REQUESTS` | 0 (use duration) | Total requests per test (overrides DURATION) |
 | `PACKET_SIZES` | 64,128,256,512,1024,1500 | Comma-separated payload sizes in bytes |
 | `SKIP_SWEEP` | 0 | Set to 1 to skip concurrency sweep |
 | `OUTPUT_DIR` | .bench-results | Results directory |
 
-### Output
-
-Results are saved to `.bench-results/report-<timestamp>.txt` with formatted tables:
+### Sample output
 
 ```
 ==================================================================
@@ -360,13 +397,27 @@ Results are saved to `.bench-results/report-<timestamp>.txt` with formatted tabl
   Concurrency: 4, Duration: 15s
 ==================================================================
 
-  Test                                     QPS       Avg        P50        P90        P99      P99.9  Throughput
-  64B payload                           12345.6    0.324ms    0.298ms    0.512ms    1.234ms    2.567ms  6.32Mbps
-  128B payload                          11234.5    0.356ms    0.315ms    0.534ms    1.345ms    2.789ms  11.51Mbps
-  ...
+  Test                            QPS        Avg       P50       P90       P99     P99.9  Status
+  64B payload                   8234.5   0.486ms   0.412ms   0.823ms   1.567ms   3.012ms  100% ok
+  128B payload                  7891.2   0.507ms   0.428ms   0.856ms   1.678ms   3.245ms  100% ok
+  256B payload                  7456.8   0.536ms   0.453ms   0.901ms   1.789ms   3.456ms  100% ok
+  512B payload                  6892.1   0.580ms   0.489ms   0.978ms   1.934ms   3.789ms  100% ok
+  1024B payload                 6123.4   0.653ms   0.551ms   1.098ms   2.156ms   4.123ms  100% ok
+  1500B payload                 5678.9   0.704ms   0.593ms   1.187ms   2.345ms   4.567ms  100% ok
+
+==================================================================
+  HTTP Application Benchmark (ambient)
+==================================================================
+
+  HTTP GET                      9123.4   0.438ms   0.378ms   0.756ms   1.456ms   2.890ms  100% ok
+  HTTP GET (no keepalive)       3456.7   1.157ms   0.978ms   1.923ms   3.456ms   6.789ms  100% ok
+  HTTP POST 1KB                 7234.5   0.553ms   0.467ms   0.934ms   1.823ms   3.567ms  100% ok
+  HTTP GET (c=32 burst)        12345.6   2.593ms   1.987ms   4.567ms   8.901ms  12.345ms  100% ok
 ```
 
-Demo benchmarks for relative comparison; not for production capacity planning.
+Reports are saved to `.bench-results/report-<timestamp>.txt`.
+
+Demo benchmarks for relative ambient vs baseline comparison; not for production capacity planning.
 
 ## Inspecting ztunnel
 
@@ -398,105 +449,66 @@ sudo ./scripts/install-baremetal-prereqs.sh
 
 See [Bare Metal Deployment](docs/BAREMETAL.md) for full prerequisites.
 
-### HTTP proxy warnings (kubeadm behind corporate proxy)
+### HTTP proxy / corporate firewall
 
-If kubeadm reports proxy warnings for 10.200.15.195 or cluster CIDRs:
+The testbed handles corporate proxies automatically:
+- `create-cluster-baremetal.sh` configures `NO_PROXY` for cluster CIDRs and installs a kubectl wrapper
+- Containerd proxy is configured via systemd drop-in when `HTTP_PROXY` is set
+- `sudo kubectl` works through the proxy-bypass wrapper at `/usr/local/bin/kubectl`
 
-```bash
-# Exclude private ranges and your control-plane IP from proxy
-export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,10.200.15.195"
-export no_proxy="${NO_PROXY}"
-make create-baremetal
-```
-
-The script auto-adds node IP and CIDRs; extend in `config/local.sh` if needed.
-
-**Note**: `ping http://proxy.example.com:3128` won't work (ping uses ICMP, not HTTP). Use `curl -x http://proxy:3128 -I https://example.com` to test proxy.
-
-### Image pull timeout (registry.k8s.io dial tcp i/o timeout)
-
-Containerd does **not** use the shell's `HTTP_PROXY`. Configure proxy for containerd before `make create-baremetal`:
+If kubeadm reports proxy warnings:
 
 ```bash
+export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 export HTTP_PROXY="http://dcproxy.simulprod.com:3128"
 export HTTPS_PROXY="$HTTP_PROXY"
-export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-
-# If containerd was already installed without proxy, the script will add it and restart
-make create-baremetal
-```
-
-Or set in `config/local.sh` and `CONTAINERD_HTTP_PROXY` for the install-prereqs step.
-
-### kubeadm init failed (experimental API, etc.)
-
-If a previous `kubeadm init` ran partially, reset first:
-
-```bash
-sudo kubeadm reset -f
 make create-baremetal
 ```
 
 ### kubectl connects to localhost:8080 (connection refused)
 
-**Root cause**: kubectl falls back to `http://localhost:8080` when it has no valid kubeconfig. Common causes:
+kubectl falls back to `http://localhost:8080` when it has no valid kubeconfig.
 
-| Cause | Where it's set | Fix |
-|-------|----------------|-----|
-| `KUBECONFIG` points to non-existent file | `config/local.sh`, `~/.bashrc`, `~/.profile` | `unset KUBECONFIG` or remove/fix the line |
-| `~/.kube/config` missing on control-plane | — | `sudo cp /etc/kubernetes/admin.conf ~/.kube/config && sudo chown $(id -u):$(id -g) ~/.kube/config` |
-| KUBECONFIG points to non-existent file | `config/local.sh` or shell profile | Use `~/.kube/config`; remove bad KUBECONFIG from config/local.sh |
-
-**Built-in auto-fix**: Scripts that use `ensure_kubectl_context` (e.g. `make setup`, `make create`) automatically:
-- Switch to `~/.kube/config` when `KUBECONFIG` points to a non-existent file
-- Copy `/etc/kubernetes/admin.conf` to `~/.kube/config` when on control-plane and config is missing (may prompt for sudo)
+**Auto-fix**: Scripts using `ensure_kubectl_context` automatically fix this by switching to `~/.kube/config` or copying from `/etc/kubernetes/admin.conf`.
 
 **Manual fix (on control-plane)**:
 ```bash
 unset KUBECONFIG
-mkdir -p ~/.kube
 sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config
 sudo chown $(id -u):$(id -g) ~/.kube/config
 kubectl cluster-info
 ```
 
-**If it persists**: Check shell profile — `grep -n KUBECONFIG ~/.bashrc ~/.profile 2>/dev/null`. Remove or fix any line that sets `KUBECONFIG` to a path that doesn't exist. Use `~/.kube/config` as the standard path.
+### Node not Ready / CNI not initialized
 
-### Cannot reach cluster
-
-Create a cluster first: `make create-baremetal` (bare metal), or use minikube/kind. Ensure `kubectl cluster-info` succeeds.
-
-### Istio platform
-
-For GKE, EKS, k3d, minikube: set `ISTIO_PLATFORM` (e.g. `gke`, `eks`, `k3d`, `minikube`).
-
-### ztunnel not ready
+If the node stays NotReady after cluster creation, the CNI config may not have been picked up:
 
 ```bash
-kubectl get pods -n istio-system -l app=ztunnel
-kubectl logs -n istio-system -l app=ztunnel
+sudo systemctl restart containerd
+# Wait 30s, then check:
+kubectl get nodes
 ```
 
-### Sample app not reachable
+### Performance test shows "FAILED" or no data
 
-Ensure `grimlock` has label `istio.io/dataplane-mode=ambient`.
+1. Check fortio pod: `kubectl get pods -n grimlock -l app=fortio`
+2. Test connectivity: `kubectl exec -n grimlock <fortio-pod> -c fortio -- fortio curl http://http-echo.grimlock:80/`
+3. Check fortio version: `kubectl exec -n grimlock <fortio-pod> -c fortio -- fortio version`
 
 ### Choke points and logging
 
-Scripts emit `[HH:MM:SS] [PHASE]` logs with duration for long-running steps. Typical choke points:
+Scripts emit `[HH:MM:SS] [PHASE]` logs with duration for long-running steps:
 
 | Phase | Script | Typical duration | Likely cause if slow |
 |-------|--------|------------------|----------------------|
 | KUBEADM | create-baremetal | 2-5 min | Image pull (registry.k8s.io), proxy |
+| WORKER | create-baremetal | 1-3 min per worker | SSH + prereqs install + join |
 | CILIUM / CALICO | create-baremetal | 1-3 min | CNI image pull, network |
-| ISTIOCTL | install-istio | 1-3 min | Download from istio.io |
-| GATEWAY-API | install-istio | 30-60s | Fetch CRD manifest |
+| ISTIOCTL | install-istio | 1-3 min | Download from GitHub |
 | ISTIO | install-istio | 2-5 min | Istio image pull |
 | ZTUNNEL | install-istio | 1-2 min | DaemonSet rollout |
 | ROLLOUT | deploy | 1-3 min | Image pull, pod scheduling |
-| BUILD | build-images | 1-5 min | Base image pull, compile |
-
-Use timestamps to see where time is spent; adjust proxy or pre-pull images if needed.
+| BENCH | test-perf | 15s per test | fortio load generation |
 
 ## Docs
 
