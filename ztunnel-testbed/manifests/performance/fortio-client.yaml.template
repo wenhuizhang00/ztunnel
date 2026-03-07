@@ -1,7 +1,17 @@
 # =============================================================================
 # Fortio client for performance testing (ambient namespace)
 # =============================================================================
-# Can target both http-echo.grimlock (ambient) and http-echo.grimlock-baseline (baseline)
+# fortio provides:
+#   - Precise latency histograms (P50/P90/P99/P99.9)
+#   - Configurable concurrency, QPS, duration
+#   - Payload size control (-payload flag)
+#   - JSON output for automated parsing
+#   - HTTP keep-alive and connection reuse
+#
+# Can target both:
+#   - http-echo.grimlock (ambient, through ztunnel)
+#   - http-echo.grimlock-baseline (no ambient, direct)
+#
 # Image: FORTIO_IMAGE (see config/images.sh)
 # =============================================================================
 
@@ -28,5 +38,8 @@ spec:
           command: ["sleep", "infinity"]
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi

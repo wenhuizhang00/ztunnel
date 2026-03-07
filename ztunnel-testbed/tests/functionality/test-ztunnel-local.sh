@@ -32,20 +32,20 @@ NS="${APP_NAMESPACE:-grimlock}"
 test_start "ztunnel local (same-node) traffic"
 
 # Check if cross-node apps are deployed
-client_pod=$(kubectl get pods -n "$NS" -l app=curl-client-node1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+client_pod=$(kubectl get pods -n "$NS" -l app=curl-client-node1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 if [[ -z "$client_pod" ]]; then
   # Fall back to regular pod-to-pod (single-node cluster)
-  client_pod=$(kubectl get pods -n "$NS" -l app=curl-client -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  client_pod=$(kubectl get pods -n "$NS" -l app=curl-client -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
   if [[ -z "$client_pod" ]]; then
     skip "No curl-client pod found (run: make deploy)"
     exit 0
   fi
-  echo_pod_ip=$(kubectl get pods -n "$NS" -l app=http-echo -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
+  echo_pod_ip=$(kubectl get pods -n "$NS" -l app=http-echo -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
   [[ -n "$echo_pod_ip" ]] || fail "No http-echo pod IP found"
 
   # Verify they're on the same node (single-node = always true)
-  client_node=$(kubectl get pod "$client_pod" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-  echo_node=$(kubectl get pods -n "$NS" -l app=http-echo -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)
+  client_node=$(kubectl get pod "$client_pod" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+  echo_node=$(kubectl get pods -n "$NS" -l app=http-echo -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
   detail "client node: $client_node, echo node: $echo_node (single-node mode)"
 
   result=$(kubectl exec -n "$NS" "$client_pod" -c curl -- curl -s -m 5 "http://${echo_pod_ip}:8080/" 2>/dev/null || echo "CURL_FAILED")
@@ -56,11 +56,11 @@ if [[ -z "$client_pod" ]]; then
 fi
 
 # Multi-node mode: use node-pinned pods
-echo_pod_ip=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
+echo_pod_ip=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
 [[ -n "$echo_pod_ip" ]] || fail "No http-echo-node1 pod IP found"
 
-client_node=$(kubectl get pod "$client_pod" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-echo_node=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)
+client_node=$(kubectl get pod "$client_pod" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+echo_node=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
 detail "curl-client-node1 on: $client_node"
 detail "http-echo-node1 on: $echo_node"
 detail "target: ${echo_pod_ip}:8080"

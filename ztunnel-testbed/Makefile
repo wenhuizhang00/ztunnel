@@ -4,7 +4,7 @@
 # Convenience targets for common operations
 # =============================================================================
 
-.PHONY: setup create install deploy build-images load-images test-func test-list test-perf bench-ambient bench-baseline install-prereqs-baremetal inspect clean help
+.PHONY: setup create install deploy build-images load-images test-func test-list test-perf bench-ambient bench-baseline bench-quick install-prereqs-baremetal inspect clean help
 
 SHELL := /bin/bash
 
@@ -52,6 +52,12 @@ test-func:
 test-list:
 	./scripts/run-functionality-tests.sh --list
 
+# Performance tests: throughput by payload size, P99 latency, HTTP app benchmark
+#   make test-perf                    # ambient + baseline comparison
+#   make bench-ambient                # ambient only
+#   make bench-baseline               # baseline only
+#   make bench-quick                  # quick run (shorter duration, skip sweep)
+#   CONCURRENCY=8 DURATION=30s make test-perf  # custom params
 test-perf:
 	./scripts/run-performance-tests.sh
 
@@ -60,6 +66,9 @@ bench-ambient:
 
 bench-baseline:
 	MODE=baseline ./scripts/run-performance-tests.sh
+
+bench-quick:
+	DURATION=5s SKIP_SWEEP=1 ./scripts/run-performance-tests.sh
 
 inspect:
 	./scripts/ztunnel-inspect.sh all
@@ -85,9 +94,10 @@ help:
 	@echo "    make test-func TEST=--all   - Run all functionality tests"
 	@echo "    make test-func TEST=pod     - Run tests matching 'pod'"
 	@echo "    make test-list              - List available tests"
-	@echo "    make test-perf              - Run performance tests (ambient + baseline)"
+	@echo "    make test-perf              - Full performance suite (throughput + latency + HTTP)"
 	@echo "    make bench-ambient          - Performance test (ambient only)"
 	@echo "    make bench-baseline         - Performance test (baseline only)"
+	@echo "    make bench-quick            - Quick benchmark (5s, no concurrency sweep)"
 	@echo ""
 	@echo "  Other:"
 	@echo "    make build-images       - Build local http-echo, curl-client, fortio images"

@@ -313,15 +313,60 @@ make test-list                  # list all available tests
 
 ## Performance Tests
 
-- **Modes**: `MODE=ambient`, `MODE=baseline`, or `MODE=both` (default)
-- **Params**: `CONCURRENCY`, `REQUESTS`, `DURATION`
-- **Output**: `.bench-results/<mode>-<timestamp>.txt`
+Comprehensive benchmark suite measuring throughput, P99 latency, and HTTP application performance.
+
+### Test matrix
+
+| Benchmark | What it measures |
+|-----------|-----------------|
+| **Throughput by payload size** | QPS and Mbps for 64, 128, 256, 512, 1024, 1500 byte payloads |
+| **P99 latency by payload size** | Avg, P50, P90, P99, P99.9 latency per payload size |
+| **HTTP application benchmark** | GET, GET (no keep-alive), POST 1KB, high-concurrency burst |
+| **Concurrency sweep** | QPS vs latency at c=1,2,4,8,16,32,64 |
+| **Ambient vs baseline** | All above run for both modes; compare mTLS overhead |
+
+### Running
 
 ```bash
-CONCURRENCY=8 REQUESTS=10000 ./scripts/run-performance-tests.sh
+make test-perf                         # full suite: ambient + baseline comparison
+make bench-ambient                     # ambient only
+make bench-baseline                    # baseline only
+make bench-quick                       # quick run (5s, skip concurrency sweep)
+
+# Custom params
+CONCURRENCY=8 DURATION=30s make test-perf
+PACKET_SIZES="64,1500" SKIP_SWEEP=1 make bench-ambient
 ```
 
-Demo benchmark only; not for production capacity planning.
+### Parameters
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODE` | both | ambient, baseline, or both |
+| `CONCURRENCY` | 4 | Concurrent connections |
+| `DURATION` | 15s | Per-test duration |
+| `REQUESTS` | 0 (use duration) | Total requests per test |
+| `PACKET_SIZES` | 64,128,256,512,1024,1500 | Comma-separated payload sizes in bytes |
+| `SKIP_SWEEP` | 0 | Set to 1 to skip concurrency sweep |
+| `OUTPUT_DIR` | .bench-results | Results directory |
+
+### Output
+
+Results are saved to `.bench-results/report-<timestamp>.txt` with formatted tables:
+
+```
+==================================================================
+  Throughput & Latency by Payload Size (ambient)
+  Concurrency: 4, Duration: 15s
+==================================================================
+
+  Test                                     QPS       Avg        P50        P90        P99      P99.9  Throughput
+  64B payload                           12345.6    0.324ms    0.298ms    0.512ms    1.234ms    2.567ms  6.32Mbps
+  128B payload                          11234.5    0.356ms    0.315ms    0.534ms    1.345ms    2.789ms  11.51Mbps
+  ...
+```
+
+Demo benchmarks for relative comparison; not for production capacity planning.
 
 ## Inspecting ztunnel
 

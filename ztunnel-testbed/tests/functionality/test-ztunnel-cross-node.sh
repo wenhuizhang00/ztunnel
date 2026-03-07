@@ -44,8 +44,8 @@ NS="${APP_NAMESPACE:-grimlock}"
 test_start "ztunnel cross-node traffic (HBONE tunnel)"
 
 # Check multi-node apps exist
-client1=$(kubectl get pods -n "$NS" -l app=curl-client-node1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-client2=$(kubectl get pods -n "$NS" -l app=curl-client-node2 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+client1=$(kubectl get pods -n "$NS" -l app=curl-client-node1 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+client2=$(kubectl get pods -n "$NS" -l app=curl-client-node2 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if [[ -z "$client1" ]] || [[ -z "$client2" ]]; then
   skip "Cross-node apps not deployed (need 2+ nodes and make deploy)"
@@ -53,10 +53,10 @@ if [[ -z "$client1" ]] || [[ -z "$client2" ]]; then
 fi
 
 # Get node placement
-client1_node=$(kubectl get pod "$client1" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-client2_node=$(kubectl get pod "$client2" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-echo1_node=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)
-echo2_node=$(kubectl get pods -n "$NS" -l app=http-echo-node2 -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null)
+client1_node=$(kubectl get pod "$client1" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+client2_node=$(kubectl get pod "$client2" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+echo1_node=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
+echo2_node=$(kubectl get pods -n "$NS" -l app=http-echo-node2 -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
 
 detail "curl-client-node1 on: $client1_node"
 detail "curl-client-node2 on: $client2_node"
@@ -69,7 +69,7 @@ if [[ "$client1_node" == "$echo2_node" ]]; then
 fi
 
 # Test 1: node1 -> node2 (control-plane -> worker)
-echo2_ip=$(kubectl get pods -n "$NS" -l app=http-echo-node2 -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
+echo2_ip=$(kubectl get pods -n "$NS" -l app=http-echo-node2 -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
 [[ -n "$echo2_ip" ]] || fail "No http-echo-node2 pod IP found"
 detail "Test 1: curl-client-node1 ($client1_node) -> http-echo-node2 ($echo2_node) @ ${echo2_ip}:8080"
 
@@ -78,7 +78,7 @@ detail "response: ${result1:0:120}"
 [[ "$result1" == *"hello-from-node2"* ]] || fail "Cross-node (node1->node2) failed: $result1"
 
 # Test 2: node2 -> node1 (worker -> control-plane, reverse direction)
-echo1_ip=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
+echo1_ip=$(kubectl get pods -n "$NS" -l app=http-echo-node1 -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
 [[ -n "$echo1_ip" ]] || fail "No http-echo-node1 pod IP found"
 detail "Test 2: curl-client-node2 ($client2_node) -> http-echo-node1 ($echo1_node) @ ${echo1_ip}:8080"
 
