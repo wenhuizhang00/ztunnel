@@ -387,7 +387,7 @@ Performance Benchmarks
 
   Single-node tests:
     1) Throughput test (payload sizes + concurrency sweep)
-    2) Latency test (P50/P90/P99/P99.9 in microseconds)
+    2) Latency test (average of P99 in microseconds)
     3) Both throughput + latency
 
   Cross-node tests (multi-node):
@@ -409,7 +409,7 @@ Select benchmark [0-9]:
 
 | Category | Throughput test | Latency test |
 |----------|----------------|--------------|
-| **Payload sizes** | Max QPS for 64-1500B POST | P50/P90/P99/P99.9 in microseconds |
+| **Payload sizes** | Max QPS for 64-1500B POST | Min/Avg/Max + average of P99 in microseconds |
 | **HTTP methods** | GET, POST, burst c=32/64 | GET c=1, no-keepalive c=1, POST c=1, GET c=4/16/64 |
 | **Concurrency sweep** | QPS at c=1,4,8,16,32,64,128 | Latency at c=1,4,16,64 |
 | **ztunnel resources** | CPU/memory before and after | CPU/memory before and after |

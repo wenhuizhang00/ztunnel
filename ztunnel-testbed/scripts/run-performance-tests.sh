@@ -30,7 +30,7 @@ if [[ -z "$BENCH" ]] && [[ -t 0 ]] && [[ -t 1 ]]; then
   echo ""
   echo "  Single-node tests:"
   echo "    1) Throughput test (payload sizes + concurrency sweep)"
-  echo "    2) Latency test (P50/P90/P99/P99.9 in microseconds)"
+  echo "    2) Latency test (average of P99 in microseconds)"
   echo "    3) Both throughput + latency"
   echo ""
 

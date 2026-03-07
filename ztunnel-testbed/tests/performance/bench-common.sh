@@ -151,10 +151,10 @@ run_and_report() {
     awk "BEGIN {printf \"%.1f\", $v * 1000000}" 2>/dev/null || echo "$v"
   }
 
-  # Average of P50/P90/P99/P99.9 in microseconds
+  # Mean of P99 latency in microseconds
   local avg_pct_us="N/A"
-  if [[ "$p50" != "N/A" ]] && [[ "$p90" != "N/A" ]] && [[ "$p99" != "N/A" ]] && [[ "$p999" != "N/A" ]]; then
-    avg_pct_us=$(awk "BEGIN {printf \"%.1f\", ($p50 + $p90 + $p99 + $p999) / 4.0 * 1000000}" 2>/dev/null || echo "N/A")
+  if [[ "$p99" != "N/A" ]]; then
+    avg_pct_us=$(awk "BEGIN {printf \"%.1f\", $p99 * 1000000}" 2>/dev/null || echo "N/A")
   fi
 
   # Extract payload size from label (e.g. "64B POST" -> 64)
@@ -197,13 +197,13 @@ print_header() {
       ;;
     latency)
       printf "  %-22s  %8s  %8s  %8s  %10s  %s\n" \
-        "Test" "Min(us)" "Avg(us)" "Max(us)" "AvgPct(us)" "OK%"
+        "Test" "Min(us)" "Avg(us)" "Max(us)" "P99(us)" "OK%"
       printf "  %-22s  %8s  %8s  %8s  %10s  %s\n" \
         "----------------------" "--------" "--------" "--------" "----------" "------"
       ;;
     *)
       printf "  %-22s  %10s  %8s  %10s  %8s  %8s  %8s  %10s  %s\n" \
-        "Test" "QPS" "Kpps" "Mbps" "Min(us)" "Avg(us)" "Max(us)" "AvgPct(us)" "OK%"
+        "Test" "QPS" "Kpps" "Mbps" "Min(us)" "Avg(us)" "Max(us)" "P99(us)" "OK%"
       printf "  %-22s  %10s  %8s  %10s  %8s  %8s  %8s  %10s  %s\n" \
         "----------------------" "----------" "--------" "----------" "--------" "--------" "--------" "----------" "------"
       ;;

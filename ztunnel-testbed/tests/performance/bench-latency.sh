@@ -2,7 +2,7 @@
 # =============================================================================
 # Latency benchmark
 # =============================================================================
-# Measures Min/Avg/Max/AvgPct latency in microseconds for varying payload
+# Measures Min/Avg/Max/P99 latency in microseconds for varying payload
 # sizes, connection types, and concurrency levels.
 # Outputs a single summary table at the end.
 #
@@ -149,12 +149,12 @@ run_all_latency() {
   echo ""
   echo "=================================================================="
   echo "  LATENCY SUMMARY (all tests, microseconds)"
-  echo "  Lower = better. AvgPct = mean of P50/P90/P99/P99.9."
+  echo "  Lower = better. AvgPct = mean of P99."
   echo "  Duration: $DURATION per test"
   echo "=================================================================="
   echo ""
   printf "  %-32s  %8s  %8s  %8s  %10s  %s\n" \
-    "Test" "Min(us)" "Avg(us)" "Max(us)" "AvgPct(us)" "OK%"
+    "Test" "Min(us)" "Avg(us)" "Max(us)" "P99(us)" "OK%"
   printf "  %-32s  %8s  %8s  %8s  %10s  %s\n" \
     "--------------------------------" "--------" "--------" "--------" "----------" "------"
   echo "$_LAT_ROWS"
