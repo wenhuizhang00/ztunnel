@@ -214,10 +214,17 @@ log_ok "Control-plane ready."
 log_info "Allowing pods on control-plane (single-node testbed)..."
 kubectl taint nodes --all node-role.kubernetes.io/control-plane- 2>/dev/null || true
 
-# Output join command for workers
+# Output join command for workers (non-fatal - cluster is ready either way)
 echo ""
-log_ok "Cluster created. To add worker nodes, run on each worker:"
-echo ""
-sudo kubeadm token create --print-join-command
-echo ""
-log_info "Copy kubeconfig to your workstation: scp $USER@<control-plane>:/home/$USER/.kube/config ~/.kube/ztunnel-baremetal-config"
+log_ok "Cluster created."
+# Try with user kubeconfig first (avoids sudo env/proxy issues), then sudo
+if KUBECONFIG="$HOME/.kube/config" kubeadm token create --print-join-command 2>/dev/null; then
+  echo ""
+elif sudo -E env KUBECONFIG=/etc/kubernetes/admin.conf kubeadm token create --print-join-command 2>/dev/null; then
+  echo ""
+else
+  log_warn "Could not create join token (Forbidden). For single-node, ignore. For workers, run manually:"
+  echo "  kubeadm token create --print-join-command"
+  echo ""
+fi
+log_info "Copy kubeconfig to workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/ztunnel-baremetal-config"
