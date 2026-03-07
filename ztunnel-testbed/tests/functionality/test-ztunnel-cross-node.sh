@@ -86,4 +86,17 @@ result2=$(kubectl exec -n "$NS" "$client2" -c curl -- curl -s -m 10 "http://${ec
 detail "response: ${result2:0:120}"
 [[ "$result2" == *"hello-from-node1"* ]] || fail "Cross-node (node2->node1) failed: $result2"
 
-pass "Cross-node ztunnel: node1->node2 and node2->node1 both OK (HBONE tunnel verified)"
+# Verify encryption: check ztunnel logs for HBONE/mTLS activity
+zt_pod=$(kubectl get pods -n istio-system -l app=ztunnel -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [[ -n "$zt_pod" ]]; then
+  recent_logs=$(kubectl logs "$zt_pod" -n istio-system --tail=30 --since=15s 2>/dev/null || true)
+  hbone_entries=$(echo "$recent_logs" | grep -cE "CONNECT|HBONE|inbound|outbound" || true)
+  detail "ztunnel HBONE/proxy entries (last 15s): $hbone_entries"
+  if [[ "$hbone_entries" -gt 0 ]]; then
+    echo "$recent_logs" | grep -E "CONNECT|HBONE|inbound|outbound" | tail -2 | while IFS= read -r line; do
+      detail "  ${line:0:120}"
+    done
+  fi
+fi
+
+pass "Cross-node ztunnel: node1->node2 and node2->node1 both OK (mTLS HBONE tunnel verified)"

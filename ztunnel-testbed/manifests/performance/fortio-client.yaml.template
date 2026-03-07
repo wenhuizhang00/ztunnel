@@ -1,36 +1,160 @@
 # =============================================================================
-# Fortio client for performance testing (ambient namespace)
+# Fortio performance test infrastructure
 # =============================================================================
-# fortio provides:
-#   - Precise latency histograms (P50/P90/P99/P99.9)
-#   - Configurable concurrency, QPS, duration
-#   - Payload size control (-payload flag)
-#   - JSON output for automated parsing
-#   - HTTP keep-alive and connection reuse
+# Architecture:
+#   fortio-client → ztunnel → fortio-server (ambient namespace)
+#   fortio-client → fortio-server (baseline namespace, no ztunnel)
 #
-# Can target both:
-#   - http-echo.grimlock (ambient, through ztunnel)
-#   - http-echo.grimlock-baseline (no ambient, direct)
+# fortio-server: runs in server mode, accepts load from fortio-client
+# fortio-client: sleep container, used via kubectl exec to run fortio load
 #
-# Image: FORTIO_IMAGE (see config/images.sh)
+# Deployed in both ambient and baseline namespaces for comparison.
 # =============================================================================
 
+# --- Ambient namespace: fortio-server ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fortio
+  name: fortio-server
   namespace: ${APP_NAMESPACE}
   labels:
-    app: fortio
+    app: fortio-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fortio
+      app: fortio-server
   template:
     metadata:
       labels:
-        app: fortio
+        app: fortio-server
+    spec:
+      containers:
+        - name: fortio
+          image: ${FORTIO_IMAGE}
+          args: ["server"]
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8079
+              name: grpc
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortio-server
+  namespace: ${APP_NAMESPACE}
+spec:
+  selector:
+    app: fortio-server
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+    - port: 8079
+      targetPort: 8079
+      name: grpc
+---
+# --- Ambient namespace: fortio-client ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio-client
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: fortio-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio-client
+  template:
+    metadata:
+      labels:
+        app: fortio-client
+    spec:
+      containers:
+        - name: fortio
+          image: ${FORTIO_IMAGE}
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+# --- Baseline namespace: fortio-server ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio-server
+  namespace: ${APP_NAMESPACE_BASELINE}
+  labels:
+    app: fortio-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio-server
+  template:
+    metadata:
+      labels:
+        app: fortio-server
+    spec:
+      containers:
+        - name: fortio
+          image: ${FORTIO_IMAGE}
+          args: ["server"]
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortio-server
+  namespace: ${APP_NAMESPACE_BASELINE}
+spec:
+  selector:
+    app: fortio-server
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+# --- Baseline namespace: fortio-client ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortio-client
+  namespace: ${APP_NAMESPACE_BASELINE}
+  labels:
+    app: fortio-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortio-client
+  template:
+    metadata:
+      labels:
+        app: fortio-client
     spec:
       containers:
         - name: fortio

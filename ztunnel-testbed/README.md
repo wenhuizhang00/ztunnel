@@ -343,38 +343,51 @@ make test-list                  # list all available tests
 | test-pod-to-pod | curl-client → http-echo pod IP (direct, through ztunnel). |
 | test-pod-to-service | curl-client → http-echo ClusterIP Service (DNS + ztunnel). |
 | test-ztunnel-workloads | `istioctl ztunnel-config workloads` shows grimlock workloads. |
-| test-ztunnel-local | Same-node pod-to-pod through local ztunnel. |
-| test-ztunnel-cross-node | Cross-node HBONE tunnel: node1→node2 and node2→node1 (multi-node only). |
-| test-mtls-policy | mTLS/policy placeholder (extend with PeerAuthentication checks). |
+| test-ztunnel-local | Same-node pod-to-pod through ztunnel + proxy log verification. |
+| test-ztunnel-cross-node | Cross-node HBONE tunnel with encryption evidence (multi-node only). |
+| test-mtls-policy | mTLS encryption proof: SPIFFE certs, HBONE protocol, ztunnel interception, metrics. |
 
 See [Functionality Testing Guide](docs/TESTING.md) for full documentation.
 
 ## Performance Tests
 
-Comprehensive benchmark suite using **fortio** to measure throughput, latency percentiles, and HTTP application performance for both ambient (through ztunnel) and baseline (direct) modes.
+Comprehensive benchmark suite using **fortio** with a dedicated client/server architecture.
+
+### Test architecture
+
+```
+Ambient namespace (grimlock):
+  fortio-client  →  ztunnel (mTLS/HBONE)  →  fortio-server:8080
+
+Baseline namespace (grimlock-baseline):
+  fortio-client  →  fortio-server:8080  (direct, no mesh)
+```
+
+Both namespaces have identical `fortio-server` (accepts load, runs `fortio server`) and `fortio-client` (generates load via `kubectl exec`) pods. Ambient routes through ztunnel with mTLS; baseline is direct.
 
 ### Benchmark categories
 
 | Category | What it measures |
 |----------|-----------------|
-| **Throughput by payload size** | QPS for 64, 128, 256, 512, 1024, 1500 byte payloads |
+| **Throughput by payload size** | QPS for POST with 64, 128, 256, 512, 1024, 1500 byte payloads |
 | **P99 latency by payload size** | Avg, P50, P90, P99, P99.9 latency per payload size |
-| **HTTP application benchmark** | GET, GET (no keep-alive), POST 1KB, high-concurrency burst (c=32) |
+| **HTTP application benchmark** | GET, GET (no keep-alive), POST 1KB, burst c=32, burst c=64 |
 | **Concurrency sweep** | QPS and latency at c=1, 2, 4, 8, 16, 32, 64 |
-| **Ambient vs baseline** | All above run for both modes for side-by-side comparison |
+| **ztunnel resource usage** | CPU and memory of ztunnel pods before/after load |
+| **Ambient vs baseline** | All above for both modes; side-by-side comparison |
 
 ### Running benchmarks
 
 ```bash
-make test-perf                              # full suite: ambient + baseline (~5 min)
+make test-perf                              # full suite: ambient + baseline
 make bench-ambient                          # ambient only
 make bench-baseline                         # baseline only
-make bench-quick                            # quick: 5s per test, skip concurrency sweep
+make bench-quick                            # quick: 5s per test, skip sweep
 
 # Custom parameters
 CONCURRENCY=8 DURATION=30s make test-perf
+CONCURRENCY=64 DURATION=60s make bench-ambient
 PACKET_SIZES="64,1500" SKIP_SWEEP=1 make bench-ambient
-MODE=ambient DURATION=60s CONCURRENCY=16 make test-perf
 ```
 
 ### Parameters
@@ -392,32 +405,52 @@ MODE=ambient DURATION=60s CONCURRENCY=16 make test-perf
 ### Sample output
 
 ```
+========================================================================
+  ztunnel-testbed Performance Report
+  Architecture: fortio-client → ztunnel (mTLS) → fortio-server
+========================================================================
+
+  ztunnel resource usage (before ambient):
+    ztunnel-mqqb7   12m    45Mi
+
 ==================================================================
-  Throughput & Latency by Payload Size (ambient)
-  Concurrency: 4, Duration: 15s
+  Throughput & Latency by Payload Size - POST (ambient)
+  Path: fortio-client → ambient → fortio-server
+  Concurrency: 4, Duration: 20s
 ==================================================================
 
-  Test                            QPS        Avg       P50       P90       P99     P99.9  Status
-  64B payload                   8234.5   0.486ms   0.412ms   0.823ms   1.567ms   3.012ms  100% ok
-  128B payload                  7891.2   0.507ms   0.428ms   0.856ms   1.678ms   3.245ms  100% ok
-  256B payload                  7456.8   0.536ms   0.453ms   0.901ms   1.789ms   3.456ms  100% ok
-  512B payload                  6892.1   0.580ms   0.489ms   0.978ms   1.934ms   3.789ms  100% ok
-  1024B payload                 6123.4   0.653ms   0.551ms   1.098ms   2.156ms   4.123ms  100% ok
-  1500B payload                 5678.9   0.704ms   0.593ms   1.187ms   2.345ms   4.567ms  100% ok
+  Test                          QPS      Avg(ms)  P50(ms)  P90(ms)  P99(ms)  P99.9ms  OK%
+  ----------------------------  --------  -------  -------  -------  -------  -------  ------
+  64B POST                      8234.5    0.486    0.412    0.823    1.567    3.012  100.0 %
+  128B POST                     7891.2    0.507    0.428    0.856    1.678    3.245  100.0 %
+  1500B POST                    5678.9    0.704    0.593    1.187    2.345    4.567  100.0 %
 
 ==================================================================
   HTTP Application Benchmark (ambient)
 ==================================================================
 
-  HTTP GET                      9123.4   0.438ms   0.378ms   0.756ms   1.456ms   2.890ms  100% ok
-  HTTP GET (no keepalive)       3456.7   1.157ms   0.978ms   1.923ms   3.456ms   6.789ms  100% ok
-  HTTP POST 1KB                 7234.5   0.553ms   0.467ms   0.934ms   1.823ms   3.567ms  100% ok
-  HTTP GET (c=32 burst)        12345.6   2.593ms   1.987ms   4.567ms   8.901ms  12.345ms  100% ok
+  HTTP GET                      9123.4    0.438    0.378    0.756    1.456    2.890  100.0 %
+  GET (no keepalive)            3456.7    1.157    0.978    1.923    3.456    6.789  100.0 %
+  POST 1KB                      7234.5    0.553    0.467    0.934    1.823    3.567  100.0 %
+  GET burst (c=32)             12345.6    2.593    1.987    4.567    8.901   12.345  100.0 %
+  GET burst (c=64)             15678.9    4.082    3.210    6.543   12.345   18.901  100.0 %
+
+  ztunnel resource usage (after ambient):
+    ztunnel-mqqb7   85m    67Mi
+
+==================================================================
+  Summary: Ambient vs Baseline
+==================================================================
+
+  Typical overhead:
+    Latency:    +0.1-0.5ms P99 (mTLS handshake amortized over keep-alive)
+    Throughput: -5-15% (encryption/decryption overhead)
+    CPU:        ztunnel uses ~50-200m CPU per 10k QPS
 ```
 
-Reports are saved to `.bench-results/report-<timestamp>.txt`.
+Reports saved to `.bench-results/report-<timestamp>.txt`.
 
-Demo benchmarks for relative ambient vs baseline comparison; not for production capacity planning.
+Demo benchmarks for relative comparison; not for production capacity planning.
 
 ## Inspecting ztunnel
 

@@ -39,10 +39,10 @@ log_step "DEPLOY" "Applying baseline sample apps (${APP_NAMESPACE_BASELINE})..."
 render_manifest "${PROJECT_ROOT}/manifests/sample-apps-baseline/http-echo-baseline.yaml.template" "${MANIFEST_CACHE}/http-echo-baseline.yaml"
 kubectl apply -f "${MANIFEST_CACHE}/http-echo-baseline.yaml"
 
-# Deploy fortio
-log_step "DEPLOY" "Applying fortio (performance tests)..."
-render_manifest "${PROJECT_ROOT}/manifests/performance/fortio-client.yaml.template" "${MANIFEST_CACHE}/fortio-client.yaml"
-kubectl apply -f "${MANIFEST_CACHE}/fortio-client.yaml" 2>/dev/null || true
+# Deploy fortio (client + server in both ambient and baseline namespaces)
+log_step "DEPLOY" "Applying fortio-server + fortio-client (performance tests)..."
+render_manifest "${PROJECT_ROOT}/manifests/performance/fortio-client.yaml.template" "${MANIFEST_CACHE}/fortio-perf.yaml"
+kubectl apply -f "${MANIFEST_CACHE}/fortio-perf.yaml" 2>/dev/null || true
 
 # CHOKE: rollout status (image pull + pod scheduling)
 log_step "ROLLOUT" "Waiting for http-echo in ${APP_NAMESPACE} (image pull + scheduling, timeout 120s)..."
@@ -52,8 +52,11 @@ kubectl rollout status deployment/curl-client -n "${APP_NAMESPACE}" --timeout=12
 log_step "ROLLOUT" "Waiting for http-echo + curl-client in ${APP_NAMESPACE_BASELINE} (timeout 120s each)..."
 kubectl rollout status deployment/http-echo -n "${APP_NAMESPACE_BASELINE}" --timeout=120s
 kubectl rollout status deployment/curl-client -n "${APP_NAMESPACE_BASELINE}" --timeout=120s
-log_step "ROLLOUT" "Waiting for fortio in ${APP_NAMESPACE} (timeout 60s)..."
-kubectl rollout status deployment/fortio -n "${APP_NAMESPACE}" --timeout=60s 2>/dev/null || true
+log_step "ROLLOUT" "Waiting for fortio-server + fortio-client (timeout 120s)..."
+kubectl rollout status deployment/fortio-server -n "${APP_NAMESPACE}" --timeout=120s 2>/dev/null || true
+kubectl rollout status deployment/fortio-client -n "${APP_NAMESPACE}" --timeout=120s 2>/dev/null || true
+kubectl rollout status deployment/fortio-server -n "${APP_NAMESPACE_BASELINE}" --timeout=120s 2>/dev/null || true
+kubectl rollout status deployment/fortio-client -n "${APP_NAMESPACE_BASELINE}" --timeout=120s 2>/dev/null || true
 
 # Deploy cross-node apps in multi-node mode (for same-node vs cross-node ztunnel tests)
 NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')

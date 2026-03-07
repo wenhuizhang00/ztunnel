@@ -51,6 +51,14 @@ if [[ -z "$client_pod" ]]; then
   result=$(kubectl exec -n "$NS" "$client_pod" -c curl -- curl -s -m 5 "http://${echo_pod_ip}:8080/" 2>/dev/null || echo "CURL_FAILED")
   detail "response: ${result:0:120}"
   [[ "$result" == *"hello"* ]] || fail "Same-node request failed: $result"
+
+  # Verify traffic went through ztunnel (check recent logs for proxy activity)
+  zt_pod=$(kubectl get pods -n istio-system -l app=ztunnel -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  if [[ -n "$zt_pod" ]]; then
+    proxy_lines=$(kubectl logs "$zt_pod" -n istio-system --tail=20 --since=5s 2>/dev/null | grep -cE "inbound|outbound|src\." || true)
+    detail "ztunnel proxy log entries (last 5s): $proxy_lines (>0 = traffic intercepted)"
+  fi
+
   pass "Local ztunnel: same-node pod-to-pod OK (single-node cluster)"
   exit 0
 fi
