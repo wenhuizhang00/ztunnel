@@ -301,15 +301,18 @@ See [Bare Metal Deployment](docs/BAREMETAL.md) for full prerequisites.
 
 ### HTTP proxy warnings (kubeadm behind corporate proxy)
 
-If kubeadm reports proxy warnings for 10.96.0.0/12 or 192.168.0.0/16:
+If kubeadm reports proxy warnings for 10.200.15.195 or cluster CIDRs:
 
 ```bash
-export NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
-# Add control-plane/node IPs: NO_PROXY="${NO_PROXY},10.200.15.195"
+# Exclude private ranges and your control-plane IP from proxy
+export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,10.200.15.195"
+export no_proxy="${NO_PROXY}"
 make create-baremetal
 ```
 
-Or set in `config/local.sh`.
+The script auto-adds node IP and CIDRs; extend in `config/local.sh` if needed.
+
+**Note**: `ping http://proxy.example.com:3128` won't work (ping uses ICMP, not HTTP). Use `curl -x http://proxy:3128 -I https://example.com` to test proxy.
 
 ### kubeadm init failed (experimental API, etc.)
 
@@ -338,6 +341,23 @@ kubectl logs -n istio-system -l app=ztunnel
 ### Sample app not reachable
 
 Ensure `grimlock` has label `istio.io/dataplane-mode=ambient`.
+
+### Choke points and logging
+
+Scripts emit `[HH:MM:SS] [PHASE]` logs with duration for long-running steps. Typical choke points:
+
+| Phase | Script | Typical duration | Likely cause if slow |
+|-------|--------|------------------|----------------------|
+| KUBEADM | create-baremetal | 2-5 min | Image pull (registry.k8s.io), proxy |
+| CILIUM / CALICO | create-baremetal | 1-3 min | CNI image pull, network |
+| ISTIOCTL | install-istio | 1-3 min | Download from istio.io |
+| GATEWAY-API | install-istio | 30-60s | Fetch CRD manifest |
+| ISTIO | install-istio | 2-5 min | Istio image pull |
+| ZTUNNEL | install-istio | 1-2 min | DaemonSet rollout |
+| ROLLOUT | deploy | 1-3 min | Image pull, pod scheduling |
+| BUILD | build-images | 1-5 min | Base image pull, compile |
+
+Use timestamps to see where time is spent; adjust proxy or pre-pull images if needed.
 
 ## Docs
 

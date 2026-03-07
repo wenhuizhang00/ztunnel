@@ -15,7 +15,7 @@ ensure_kubectl_context
 
 log_info "Installing Istio ambient mode (version: ${ISTIO_VERSION})"
 
-# Detect OS and arch for Istio download
+# Detect OS and arch
 case "$(uname -s)" in
   Darwin) TARGET_OS=osx ;;
   Linux)  TARGET_OS=linux ;;
@@ -27,10 +27,11 @@ case "$(uname -m)" in
   *) TARGET_ARCH=x86_64 ;;
 esac
 
-# Ensure istioctl
+# CHOKE: istioctl download (network - may be slow behind proxy)
 ISTIOCTL="${PROJECT_ROOT}/bin/istioctl"
 if [[ ! -x "${ISTIOCTL}" ]] || [[ ! -d "${PROJECT_ROOT}/.cache/istio-${ISTIO_VERSION}" ]]; then
-  log_info "Downloading Istio ${ISTIO_VERSION}..."
+  log_step "ISTIOCTL" "Downloading Istio ${ISTIO_VERSION} (network - may take 1-3 min)..."
+  istio_dl_start=$(date +%s)
   mkdir -p "${PROJECT_ROOT}/.cache"
   cd "${PROJECT_ROOT}/.cache"
   if [[ ! -d "istio-${ISTIO_VERSION}" ]]; then
@@ -41,26 +42,28 @@ if [[ ! -x "${ISTIOCTL}" ]] || [[ ! -d "${PROJECT_ROOT}/.cache/istio-${ISTIO_VER
   cp -f "${PROJECT_ROOT}/.cache/istio-${ISTIO_VERSION}/bin/istioctl" "${ISTIOCTL}"
   chmod +x "${ISTIOCTL}"
   cd "${PROJECT_ROOT}"
+  log_step_ok "ISTIOCTL" "Istio downloaded" "$(( $(date +%s) - istio_dl_start ))s"
 fi
 log_ok "istioctl: $(${ISTIOCTL} version --short 2>/dev/null || ${ISTIOCTL} version 2>/dev/null | head -1)"
 
-# Install Gateway API CRDs
-log_info "Installing Gateway API CRDs (${GATEWAY_API_VERSION})..."
+# CHOKE: Gateway API CRDs (network fetch)
+log_step "GATEWAY-API" "Installing Gateway API CRDs (${GATEWAY_API_VERSION}) - fetching from network..."
 if kubectl get crd gateways.gateway.networking.k8s.io &>/dev/null; then
-  log_ok "Gateway API CRDs already installed."
+  log_step_ok "GATEWAY-API" "CRDs already installed"
 else
   kubectl apply --server-side -f "${GATEWAY_API_INSTALL_URL}"
-  log_ok "Gateway API CRDs installed."
+  log_step_ok "GATEWAY-API" "CRDs installed"
 fi
 
-# Install Istio with ambient profile
-# Set ISTIO_PLATFORM for GKE/EKS/k3d/minikube (e.g. gke, eks, k3d, minikube)
-log_info "Installing Istio ambient profile..."
+# CHOKE: Istio install (pulls images, applies manifests)
+log_step "ISTIO" "Installing Istio ambient profile (pulling images - may take 2-5 min)..."
+istio_install_start=$(date +%s)
 install_args=(--set profile=ambient --skip-confirmation)
 [[ -n "${ISTIO_PLATFORM:-}" ]] && install_args+=(--set "global.platform=${ISTIO_PLATFORM}")
 "${ISTIOCTL}" install "${install_args[@]}"
+log_step_ok "ISTIO" "Istio installed" "$(( $(date +%s) - istio_install_start ))s"
 
-log_ok "Istio ambient mode installed."
-log_info "Verifying ztunnel DaemonSet..."
+# CHOKE: ztunnel DaemonSet rollout
+log_step "ZTUNNEL" "Waiting for ztunnel DaemonSet rollout (timeout 120s)..."
 kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s
-log_ok "ztunnel is ready."
+log_step_ok "ZTUNNEL" "ztunnel is ready"

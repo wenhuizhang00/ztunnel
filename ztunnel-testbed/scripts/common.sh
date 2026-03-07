@@ -27,6 +27,25 @@ log_ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# Choke-point logging: timestamp + phase for long-running steps
+log_step() {
+  local ts phase msg
+  ts=$(date '+%H:%M:%S')
+  phase="${1:-STEP}"
+  msg="${2:-}"
+  echo -e "${BLUE}[${ts}] [${phase}]${NC} ${msg}"
+}
+log_step_ok() {
+  local ts phase msg elapsed
+  ts=$(date '+%H:%M:%S')
+  phase="${1:-STEP}"
+  msg="${2:-done}"
+  elapsed="${3:-}"
+  [[ -n "$elapsed" ]] && msg="${msg} (${elapsed})"
+  echo -e "${GREEN}[${ts}] [${phase}] OK${NC} ${msg}"
+}
+# Usage: STEP_START=$(date +%s); ... ; log_step_ok "PHASE" "message" "$(( $(date +%s) - STEP_START ))s"
+
 # Check command exists
 check_cmd() {
   for cmd in "$@"; do

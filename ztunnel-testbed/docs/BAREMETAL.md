@@ -113,15 +113,15 @@ export KUBE_CONTEXT=kubernetes-admin@kubernetes  # if specifying context
 
 ## Proxy (corporate / behind firewall)
 
-When behind an HTTP proxy, kubeadm may warn that cluster CIDRs use the proxy. Exclude them:
+When behind an HTTP proxy, kubeadm may warn that connection to control-plane IP (e.g. 10.200.15.195) uses the proxy. Exclude private ranges and node IP:
 
 ```bash
-export NO_PROXY="localhost,127.0.0.1,10.96.0.0/12,192.168.0.0/16"
-# Add control-plane/node IPs if needed, e.g. NO_PROXY="${NO_PROXY},10.200.15.195"
+export NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,10.200.15.195"
+export no_proxy="${NO_PROXY}"
 make create-baremetal
 ```
 
-The script adds service (10.96.0.0/12) and pod (POD_NETWORK_CIDR) subnets automatically; extend NO_PROXY in `config/local.sh` for node IPs.
+The script auto-adds node IP (from `hostname -I`) and pod/service CIDRs; extend in `config/local.sh` for multiple nodes.
 
 ## Configuration
 

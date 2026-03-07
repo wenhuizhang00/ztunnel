@@ -25,6 +25,8 @@ timestamp=$(date +%Y%m%d-%H%M%S)
 
 ensure_kubectl_context
 
+log_info "Performance benchmark: MODE=${MODE}, CONCURRENCY=${CONCURRENCY}, REQUESTS=${REQUESTS}"
+
 # URLs (use APP_NAMESPACE from config)
 AMBIENT_URL="http://http-echo.${APP_NAMESPACE}.svc.cluster.local:80/"
 BASELINE_URL="http://http-echo.${APP_NAMESPACE_BASELINE}.svc.cluster.local:80/"
@@ -43,14 +45,14 @@ run_bench() {
 
   # Use fortio from grimlock (can reach both ambient and baseline via K8s network)
   if [[ -n "$fortio_pod" ]]; then
-    log_info "[$name] Running fortio: $url"
+    log_step "BENCH" "[$name] Running fortio load test: $url"
     kubectl exec -n "${APP_NAMESPACE}" "$fortio_pod" -c fortio -- fortio load \
       -c "$CONCURRENCY" -n "$REQUESTS" -qps 0 -a \
       -json /tmp/out.json "$url" 2>&1 | tee "$out_file" || true
     # Try to extract key metrics
     kubectl exec -n "${APP_NAMESPACE}" "$fortio_pod" -c fortio -- cat /tmp/out.json 2>/dev/null >> "$out_file" || true
   else
-    log_info "[$name] Running curl loop (basic): $url"
+    log_step "BENCH" "[$name] Running curl loop (basic, no fortio): $url"
     {
       echo "Benchmark: $name"
       echo "URL: $url"
@@ -70,7 +72,7 @@ run_bench() {
       echo "QPS: $qps"
     } | tee "$out_file"
   fi
-  log_ok "[$name] Results: $out_file"
+  log_step_ok "BENCH" "[$name] Results: $out_file"
 }
 
 if [[ "$MODE" == "ambient" ]]; then

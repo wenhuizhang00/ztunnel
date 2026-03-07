@@ -25,6 +25,11 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_step() { echo -e "${BLUE}[$(date '+%H:%M:%S')] [$1]${NC} $2"; }
+log_step_ok() {
+  local elapsed="${3:-}"
+  [[ -n "$elapsed" ]] && echo -e "${GREEN}[$(date '+%H:%M:%S')] [$1] OK${NC} $2 (${elapsed})" || echo -e "${GREEN}[$(date '+%H:%M:%S')] [$1] OK${NC} $2"
+}
 
 # Detect Linux
 [[ "$(uname -s)" == "Linux" ]] || { log_error "This script is for Linux only."; exit 1; }
@@ -68,30 +73,33 @@ if grep -q '\sswap\s' /etc/fstab 2>/dev/null; then
 fi
 log_ok "Swap disabled"
 
-# 4. Install apt deps
-log_info "Installing apt packages..."
+# 4. CHOKE: apt update + install (network)
+log_step "APT" "Installing apt packages (update + install, may be slow)..."
+apt_start=$(date +%s)
 sudo apt-get update -qq
 sudo apt-get install -y -qq apt-transport-https ca-certificates curl gpg
+log_step_ok "APT" "apt packages installed" "$(( $(date +%s) - apt_start ))s"
 
-# 5. Add Kubernetes repo
+# 5. CHOKE: Add Kubernetes repo (network fetch of Release.key)
 K8S_APT_KEY="/etc/apt/keyrings/kubernetes-apt-keyring.gpg"
 K8S_LIST="/etc/apt/sources.list.d/kubernetes.list"
 K8S_VERSION="${K8S_VERSION:-1.30.0}"
 K8S_MAJOR_MINOR="${K8S_VERSION%.*}"  # 1.30.0 -> 1.30
 
-log_info "Adding Kubernetes apt repository (v${K8S_MAJOR_MINOR})..."
+log_step "K8S-REPO" "Adding Kubernetes apt repository (v${K8S_MAJOR_MINOR}) - network fetch..."
 curl -fsSL "https://pkgs.k8s.io/core:/stable:/v${K8S_MAJOR_MINOR}/deb/Release.key" | sudo gpg --dearmor -o "${K8S_APT_KEY}"
 echo "deb [signed-by=${K8S_APT_KEY}] https://pkgs.k8s.io/core:/stable:/v${K8S_MAJOR_MINOR}/deb/ /" | sudo tee "${K8S_LIST}"
 
-# 6. Install kubelet, kubeadm, kubectl
-log_info "Installing kubelet, kubeadm, kubectl..."
+# 6. CHOKE: Install kubelet, kubeadm, kubectl (network)
+log_step "K8S" "Installing kubelet, kubeadm, kubectl (apt, may take 1-2 min)..."
+k8s_start=$(date +%s)
 sudo apt-get update -qq
 sudo apt-get install -y -qq kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
-log_ok "Kubernetes tools installed"
+log_step_ok "K8S" "kubelet, kubeadm, kubectl installed" "$(( $(date +%s) - k8s_start ))s"
 
-# 7. Install containerd
-log_info "Installing containerd..."
+# 7. CHOKE: Install containerd (apt)
+log_step "CONTAINERD" "Installing containerd (apt + systemctl)..."
 sudo apt-get install -y -qq containerd
 sudo mkdir -p /etc/containerd
 if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml 2>/dev/null; then
@@ -100,7 +108,7 @@ if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml 2>/dev/null; the
 fi
 sudo systemctl enable --now containerd
 sudo systemctl restart containerd 2>/dev/null || true
-log_ok "Containerd installed and running"
+log_step_ok "CONTAINERD" "containerd running"
 
 echo ""
 log_ok "Prerequisites installed. Next: make create-baremetal"

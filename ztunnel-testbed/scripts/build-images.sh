@@ -21,6 +21,11 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
+log_step() { echo -e "${BLUE}[$(date '+%H:%M:%S')] [$1]${NC} $2"; }
+log_step_ok() {
+  local elapsed="${3:-}"
+  [[ -n "$elapsed" ]] && echo -e "${GREEN}[$(date '+%H:%M:%S')] [$1] OK${NC} $2 (${elapsed})" || echo -e "${GREEN}[$(date '+%H:%M:%S')] [$1] OK${NC} $2"
+}
 
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-localhost/ztunnel-testbed}"
 
@@ -32,14 +37,16 @@ check_cmd docker
 log_info "Building local images (registry: ${IMAGE_REGISTRY})..."
 
 # Build arch (default: native)
+# CHOKE: docker build (network for base images, compilation)
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}"
 
 build_image() {
   local name="$1"
   local dir="$2"
-  log_info "Building ${name}..."
+  log_step "BUILD" "Building ${name} (may pull base images)..."
+  build_start=$(date +%s)
   docker build -t "${IMAGE_REGISTRY}/${name}:latest" "${dir}"
-  log_ok "${name}: ${IMAGE_REGISTRY}/${name}:latest"
+  log_step_ok "BUILD" "${name}: ${IMAGE_REGISTRY}/${name}:latest" "$(( $(date +%s) - build_start ))s"
 }
 
 build_image http-echo "${PROJECT_ROOT}/images/http-echo"

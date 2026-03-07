@@ -28,6 +28,11 @@ log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
+log_step() { echo -e "${BLUE}[$(date '+%H:%M:%S')] [$1]${NC} $2"; }
+log_step_ok() {
+  local elapsed="${3:-}"
+  [[ -n "$elapsed" ]] && echo -e "${GREEN}[$(date '+%H:%M:%S')] [$1] OK${NC} $2 (${elapsed})" || echo -e "${GREEN}[$(date '+%H:%M:%S')] [$1] OK${NC} $2"
+}
 
 log_info "Creating Kubernetes cluster on bare metal (kubeadm, no k3s)"
 
@@ -107,50 +112,68 @@ else
   cp "${PROJECT_ROOT}/config/kubeadm-config.yaml" "$KUBEADM_CONFIG"
 fi
 
-# Bypass proxy for cluster-internal traffic (kubeadm, pod/service CIDRs)
+# Bypass proxy for cluster-internal traffic (kubeadm, control-plane IP, pod/service CIDRs)
 export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}"
-export NO_PROXY="${NO_PROXY},10.96.0.0/12,${POD_NETWORK_CIDR}"
+export NO_PROXY="${NO_PROXY},10.96.0.0/12,${POD_NETWORK_CIDR},10.0.0.0/8,172.16.0.0/12"
+# Add node IP if detectable (10.200.x.x etc)
+NODE_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+[[ -n "$NODE_IP" ]] && export NO_PROXY="${NO_PROXY},${NODE_IP}"
+# Some tools use lowercase
+export no_proxy="${NO_PROXY}"
+log_info "NO_PROXY includes cluster CIDRs and node IP for proxy bypass"
 
-log_info "Running kubeadm init..."
+# CHOKE: kubeadm init (preflight, image pull from registry.k8s.io, etcd, control-plane)
+log_step "KUBEADM" "Running kubeadm init (preflight + image pull + etcd + control-plane - may take 2-5 min)..."
+kubeadm_start=$(date +%s)
 sudo -E kubeadm init --config "$KUBEADM_CONFIG"
+log_step_ok "KUBEADM" "kubeadm init complete" "$(( $(date +%s) - kubeadm_start ))s"
 
 # Setup kubeconfig for current user
-log_info "Setting up kubeconfig..."
+log_step "KUBECONFIG" "Setting up kubeconfig..."
 mkdir -p "$HOME/.kube"
 sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
 sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 export KUBECONFIG="$HOME/.kube/config"
+log_ok "kubeconfig ready"
 
 # Install CNI
 if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
-  log_info "Installing Cilium CNI (Istio ambient compatible, no Helm)..."
+  log_step "CILIUM" "Installing Cilium CNI (Istio ambient compatible, no Helm)..."
   source "${PROJECT_ROOT}/config/cilium.sh" 2>/dev/null || true
   CILIUM_CLI=$(command -v cilium 2>/dev/null || echo "${PROJECT_ROOT}/bin/cilium")
   if [[ ! -x "$CILIUM_CLI" ]]; then
-    log_info "Downloading Cilium CLI..."
+    log_step "CILIUM" "Downloading Cilium CLI (network - may be slow behind proxy)..."
     CILIUM_CLI_VERSION=$(curl -sL https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt 2>/dev/null || echo "v0.18.7")
     CLI_ARCH=amd64; [[ "$(uname -m)" == "aarch64" ]] || [[ "$(uname -m)" == "arm64" ]] && CLI_ARCH=arm64
     mkdir -p "${PROJECT_ROOT}/bin" "${PROJECT_ROOT}/.cache"
+    cilium_start=$(date +%s)
     curl -sL --fail -o "${PROJECT_ROOT}/.cache/cilium-cli.tar.gz" "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz" || { log_error "Failed to download Cilium CLI"; exit 1; }
     tar xzf "${PROJECT_ROOT}/.cache/cilium-cli.tar.gz" -C "${PROJECT_ROOT}/bin"
     chmod +x "${PROJECT_ROOT}/bin/cilium"
     CILIUM_CLI="${PROJECT_ROOT}/bin/cilium"
+    log_step_ok "CILIUM" "Cilium CLI downloaded" "$(( $(date +%s) - cilium_start ))s"
   fi
+  log_step "CILIUM" "Running cilium install (pulling images + --wait)..."
+  cilium_install_start=$(date +%s)
   "$CILIUM_CLI" install --version "v${CILIUM_VERSION:-1.16.0}" \
     --set cni.exclusive=false \
     --set socketLB.hostNamespaceOnly=true \
     --set kubeProxyReplacement=false \
     --wait
+  log_step "CILIUM" "Waiting for cilium DaemonSet rollout (timeout 300s)..."
   kubectl rollout status daemonset/cilium -n kube-system --timeout=300s
+  log_step_ok "CILIUM" "Cilium ready" "$(( $(date +%s) - cilium_install_start ))s"
 else
-  log_info "Installing Calico CNI (${CALICO_VERSION})..."
+  log_step "CALICO" "Installing Calico CNI (${CALICO_VERSION}) - fetching manifests..."
+  calico_start=$(date +%s)
   kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/operator-crds.yaml" 2>/dev/null || true
   kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
   kubectl create -f "${PROJECT_ROOT}/manifests/cni/calico-custom-resources.yaml"
-  log_info "Waiting for CNI to be ready..."
+  log_step "CALICO" "Waiting for Calico pods (sleep 15s + wait up to 180s)..."
   sleep 15
   kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=180s 2>/dev/null || \
     kubectl wait --for=condition=available deployment -n tigera-operator tigera-operator --timeout=180s 2>/dev/null || true
+  log_step_ok "CALICO" "Calico ready" "$(( $(date +%s) - calico_start ))s"
 fi
 
 log_ok "Control-plane ready."
