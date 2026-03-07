@@ -13,11 +13,34 @@ A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kube
 - **Performance tests**: fortio/curl, ambient vs baseline
 - **Inspection**: ztunnel workloads, logs, config
 
-## Prerequisites
+## Dependencies
 
-- **kubectl**
-- **curl**
-- For bare metal: kubeadm, kubelet, containerd (or docker)
+### All setups
+
+| Dependency | Purpose |
+|------------|---------|
+| kubectl | Cluster access |
+| curl | Downloads (Istio, manifests) |
+
+### Bare metal only (for `make create-baremetal`)
+
+| Dependency | Purpose |
+|------------|---------|
+| kubeadm | Create cluster |
+| kubelet | Node agent |
+| kubectl | Cluster CLI |
+| containerd (or docker) | Container runtime |
+| swap disabled | Kubernetes requirement |
+| overlay, br_netfilter | Kernel modules |
+
+**Install all bare metal deps (Ubuntu/Debian):**
+
+```bash
+# Run on each node (control-plane and workers) with sudo
+sudo ./scripts/install-baremetal-prereqs.sh
+```
+
+Or: `make install-prereqs-baremetal` (prints the command).
 
 ## Quick Start
 
@@ -38,6 +61,9 @@ make test-perf
 ### Option B: Bare metal (create cluster first)
 
 ```bash
+# 0. On all nodes: install prerequisites (one-time)
+sudo ./scripts/install-baremetal-prereqs.sh
+
 # 1. On control-plane node: create cluster
 make create-baremetal
 
@@ -76,6 +102,7 @@ make test-func
 | `make setup` | Verify cluster + install Istio + deploy apps |
 | `make create` | Verify kubectl cluster connectivity |
 | `make create-baremetal` | Create cluster on bare metal (kubeadm) |
+| `make install-prereqs-baremetal` | Print install command for bare metal deps |
 | `make install` | Install Istio ambient only |
 | `make install-cilium` | Install Cilium CNI (no Helm, Istio compatible) |
 | `make deploy` | Deploy sample apps only |
@@ -129,6 +156,7 @@ ztunnel-testbed/
 │   ├── common.sh
 │   ├── create-cluster.sh
 │   ├── create-cluster-baremetal.sh
+│   ├── install-baremetal-prereqs.sh
 │   ├── install-istio.sh
 │   ├── install-cilium.sh
 │   ├── deploy-sample-apps.sh
@@ -227,6 +255,16 @@ make clean
 Uninstalls Istio and removes sample apps. Does NOT delete the cluster. Use `REMOVE_CACHE=1` for non-interactive cache removal.
 
 ## Troubleshooting
+
+### Missing prerequisites (bare metal)
+
+If `make create-baremetal` reports missing kubeadm, containerd, swap, etc.:
+
+```bash
+sudo ./scripts/install-baremetal-prereqs.sh
+```
+
+See [Bare Metal Deployment](docs/BAREMETAL.md) for full prerequisites.
 
 ### Cannot reach cluster
 

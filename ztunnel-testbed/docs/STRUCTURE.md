@@ -44,6 +44,7 @@ ztunnel-testbed/
 | `common.sh` | Shared helpers (log, check_cmd, ensure_kubectl_context) |
 | `create-cluster.sh` | Verify kubectl cluster connectivity |
 | `create-cluster-baremetal.sh` | Create K8s cluster on bare metal (kubeadm, Calico or Cilium) |
+| `install-baremetal-prereqs.sh` | Install kubeadm, kubelet, kubectl, containerd (Ubuntu/Debian) |
 | `install-istio.sh` | Install Istio ambient (istioctl) |
 | `install-cilium.sh` | Install Cilium CNI (Cilium CLI, no Helm) |
 | `deploy-sample-apps.sh` | Deploy sample apps to grimlock + grimlock-baseline |

@@ -6,25 +6,54 @@ Create a standard Kubernetes cluster on bare metal using **kubeadm** (no k3s), m
 
 - At least 1 machine (control-plane), recommended 3 (1 control-plane + 2 workers)
 - Ubuntu 22.04 / 24.04 or compatible Linux
-- Installed: kubeadm, kubelet, kubectl, containerd (or docker)
 - Network connectivity between nodes
 
-### Install Kubernetes components (all nodes)
+### Dependencies (all nodes)
+
+| Dependency | Purpose |
+|------------|---------|
+| kubeadm | Create cluster |
+| kubelet | Node agent |
+| kubectl | Cluster CLI |
+| containerd | Container runtime |
+| curl | Downloads |
+| swap disabled | Kubernetes requirement |
+| overlay, br_netfilter | Kernel modules |
+
+### Install all prerequisites (recommended)
+
+Run on **each** node (control-plane and workers):
 
 ```bash
-# Ubuntu/Debian
+cd ztunnel-testbed
+sudo ./scripts/install-baremetal-prereqs.sh
+```
+
+This installs kubeadm, kubelet, kubectl, containerd; disables swap; loads modules; configures sysctl.
+
+### Manual install (alternative)
+
+If the script is not suitable, install manually:
+
+```bash
+# Ubuntu/Debian - Kubernetes
 sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
 sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl
-```
 
-### Disable swap and load modules (all nodes)
-
-```bash
+# Disable swap
 sudo swapoff -a && sudo sed -i '/ swap / d' /etc/fstab
+
+# Load modules
 sudo modprobe overlay && sudo modprobe br_netfilter
+
+# Containerd
+sudo apt-get install -y containerd
+containerd config default | sudo tee /etc/containerd/config.toml
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sudo systemctl enable --now containerd
 ```
 
 ## Create cluster

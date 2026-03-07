@@ -31,21 +31,56 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 log_info "Creating Kubernetes cluster on bare metal (kubeadm, no k3s)"
 
-# Check required commands
-for cmd in kubeadm kubectl; do
-  if ! command -v "$cmd" &>/dev/null; then
-    log_error "Required: $cmd"
-    echo ""
-    echo "  Install on Ubuntu/Debian:"
-    echo "    sudo apt-get update && sudo apt-get install -y apt-transport-https ca-certificates curl"
-    echo "    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg"
-    echo "    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list"
-    echo "    sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl"
-    echo ""
-    echo "  See docs/BAREMETAL.md for full prerequisites."
-    exit 1
-  fi
+# --- Dependency checks ---
+missing=()
+
+# Commands
+for cmd in kubeadm kubectl kubelet curl; do
+  command -v "$cmd" &>/dev/null || missing+=("$cmd")
 done
+
+# Container runtime (containerd or docker)
+case "${CRI_SOCKET}" in
+  *containerd*)
+    if ! command -v containerd &>/dev/null; then
+      missing+=("containerd")
+    else
+      sock="${CRI_SOCKET#unix://}"
+      [[ -S "$sock" ]] || systemctl is-active containerd &>/dev/null || missing+=("containerd (run: sudo systemctl start containerd)")
+    fi
+    ;;
+  *docker*)
+    command -v docker &>/dev/null || missing+=("docker")
+    ;;
+  *)
+    command -v containerd &>/dev/null || command -v docker &>/dev/null || missing+=("containerd or docker")
+    ;;
+esac
+
+# Swap must be off (Kubernetes requirement)
+if [[ -f /proc/swaps ]]; then
+  swap_kb=$(awk 'NR>1 {sum+=$3} END {print sum+0}' /proc/swaps)
+  [[ "${swap_kb:-0}" -gt 0 ]] && missing+=("swap (run: sudo swapoff -a)")
+fi
+
+# Kernel modules (warn only, kubeadm may work anyway)
+for mod in overlay br_netfilter; do
+  lsmod 2>/dev/null | grep -q "^${mod}\s" || log_warn "Module $mod not loaded (recommended: sudo modprobe $mod)"
+done
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  log_error "Missing prerequisites: ${missing[*]}"
+  echo ""
+  echo "  Install all at once (Ubuntu/Debian):"
+  echo "    sudo ./scripts/install-baremetal-prereqs.sh"
+  echo ""
+  echo "  Or: make install-prereqs-baremetal"
+  echo ""
+  echo "  See docs/BAREMETAL.md and README.md for details."
+  exit 1
+fi
+
+log_ok "All prerequisites satisfied"
 
 # Generate kubeadm config
 KUBEADM_CONFIG="${PROJECT_ROOT}/.cache/kubeadm-config.yaml"
