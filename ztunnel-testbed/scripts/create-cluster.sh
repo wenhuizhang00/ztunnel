@@ -2,10 +2,9 @@
 # =============================================================================
 # ztunnel-testbed - Verify Kubernetes cluster connectivity
 # =============================================================================
-# Uses an existing Kubernetes cluster. Ensure kubectl is configured.
-# Run: kubectl config get-contexts
-# Set: export KUBECONFIG=/path/to/kubeconfig
-#      export KUBE_CONTEXT=my-context  (optional, in config/local.sh)
+# Does NOT create a cluster. Verifies kubectl can reach an existing cluster.
+# Create cluster first: make create-baremetal (bare metal) or minikube/kind.
+# Config: KUBECONFIG, KUBE_CONTEXT (config/local.sh)
 # =============================================================================
 
 set -euo pipefail

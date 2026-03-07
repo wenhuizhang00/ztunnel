@@ -2,7 +2,8 @@
 # =============================================================================
 # ztunnel-testbed - Deploy sample applications
 # =============================================================================
-# Deploys sample apps (http-echo + curl-client) with ambient mesh label.
+# Deploys http-echo + curl-client to grimlock (ambient) and grimlock-baseline.
+# Namespaces configurable via APP_NAMESPACE, APP_NAMESPACE_BASELINE.
 # =============================================================================
 
 set -euo pipefail
@@ -26,12 +27,12 @@ kubectl apply -f "${PROJECT_ROOT}/manifests/sample-apps-baseline/http-echo-basel
 kubectl apply -f "${PROJECT_ROOT}/manifests/performance/fortio-client.yaml" 2>/dev/null || true
 
 log_info "Waiting for sample apps to be ready..."
-kubectl rollout status deployment/http-echo -n sample-apps --timeout=120s
-kubectl rollout status deployment/curl-client -n sample-apps --timeout=120s
-kubectl rollout status deployment/http-echo -n sample-apps-baseline --timeout=120s
-kubectl rollout status deployment/curl-client -n sample-apps-baseline --timeout=120s
-kubectl rollout status deployment/fortio -n sample-apps --timeout=60s 2>/dev/null || true
+kubectl rollout status deployment/http-echo -n "${APP_NAMESPACE}" --timeout=120s
+kubectl rollout status deployment/curl-client -n "${APP_NAMESPACE}" --timeout=120s
+kubectl rollout status deployment/http-echo -n "${APP_NAMESPACE_BASELINE}" --timeout=120s
+kubectl rollout status deployment/curl-client -n "${APP_NAMESPACE_BASELINE}" --timeout=120s
+kubectl rollout status deployment/fortio -n "${APP_NAMESPACE}" --timeout=60s 2>/dev/null || true
 
 log_ok "Sample apps deployed."
 log_info "Pods:"
-kubectl get pods -n sample-apps -o wide
+kubectl get pods -n "${APP_NAMESPACE}" -o wide

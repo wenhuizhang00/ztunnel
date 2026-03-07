@@ -2,7 +2,8 @@
 # =============================================================================
 # ztunnel-testbed - Cilium Configuration
 # =============================================================================
-# Compatible with Istio ambient mode (cni.exclusive=false, socketLB.hostNamespaceOnly=true)
+# Used by install-cilium.sh. Istio ambient compatible:
+#   cni.exclusive=false, socketLB.hostNamespaceOnly=true, kubeProxyReplacement=false
 # =============================================================================
 
 # Cilium version (e.g. 1.16.0, 1.19.1)

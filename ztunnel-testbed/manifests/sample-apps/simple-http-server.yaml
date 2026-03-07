@@ -1,11 +1,11 @@
 # =============================================================================
-# Simple HTTP server - used for Pod-to-Pod and Service testing
+# Ambient sample app - http-echo + curl-client in grimlock namespace
 # =============================================================================
 
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: sample-apps
+  name: grimlock
   labels:
     istio.io/dataplane-mode: ambient
 ---
@@ -13,7 +13,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-echo
-  namespace: sample-apps
+  namespace: grimlock
   labels:
     app: http-echo
 spec:
@@ -44,7 +44,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-echo
-  namespace: sample-apps
+  namespace: grimlock
 spec:
   selector:
     app: http-echo
@@ -58,7 +58,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: curl-client
-  namespace: sample-apps
+  namespace: grimlock
   labels:
     app: curl-client
 spec:

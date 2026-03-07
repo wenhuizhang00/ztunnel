@@ -1,20 +1,20 @@
 # =============================================================================
-# Baseline (non-ambient) HTTP server - for performance comparison
+# Baseline (non-ambient) - grimlock-baseline namespace for perf comparison
 # =============================================================================
-# No istio.io/dataplane-mode=ambient label - traffic does NOT go through ztunnel
+# No ambient label - traffic does NOT go through ztunnel
 # =============================================================================
 
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: sample-apps-baseline
+  name: grimlock-baseline
   # No ambient label - intentionally outside mesh
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: http-echo
-  namespace: sample-apps-baseline
+  namespace: grimlock-baseline
   labels:
     app: http-echo
 spec:
@@ -45,7 +45,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: http-echo
-  namespace: sample-apps-baseline
+  namespace: grimlock-baseline
 spec:
   selector:
     app: http-echo
@@ -58,7 +58,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: curl-client
-  namespace: sample-apps-baseline
+  namespace: grimlock-baseline
   labels:
     app: curl-client
 spec:

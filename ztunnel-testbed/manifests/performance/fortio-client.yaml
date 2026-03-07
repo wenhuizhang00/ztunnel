@@ -1,14 +1,14 @@
 # =============================================================================
 # Fortio client for performance testing (ambient namespace)
 # =============================================================================
-# Can target both http-echo.sample-apps (ambient) and http-echo.sample-apps-baseline (baseline)
+# Can target both http-echo.grimlock (ambient) and http-echo.grimlock-baseline (baseline)
 # =============================================================================
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: fortio
-  namespace: sample-apps
+  namespace: grimlock
   labels:
     app: fortio
 spec:

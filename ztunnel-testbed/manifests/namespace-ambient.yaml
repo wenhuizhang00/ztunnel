@@ -1,7 +1,7 @@
 # =============================================================================
-# Sample namespace with ambient mesh label
+# grimlock namespace with ambient mesh label
 # =============================================================================
-# Apply this label to enable ambient mesh for workloads in the namespace.
+# Enables ambient mesh for workloads. Also labels default.
 # =============================================================================
 
 apiVersion: v1
@@ -14,6 +14,6 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: sample-apps
+  name: grimlock
   labels:
     istio.io/dataplane-mode: ambient

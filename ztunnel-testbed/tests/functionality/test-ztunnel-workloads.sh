@@ -31,8 +31,8 @@ if [[ -z "$out" ]]; then
   out=$("$ISTIOCTL" ztunnel-config workloads 2>/dev/null || true)
 fi
 
-# Should list sample-apps workloads or at least show some HBONE workloads
-if [[ "$out" == *"sample-apps"* ]] || [[ "$out" == *"http-echo"* ]] || [[ "$out" == *"HBONE"* ]]; then
+# Should list grimlock workloads or at least show some HBONE workloads
+if [[ "$out" == *"grimlock"* ]] || [[ "$out" == *"http-echo"* ]] || [[ "$out" == *"HBONE"* ]]; then
   pass "ztunnel-config workloads shows expected data"
 else
   # Non-fatal: command might have different output format

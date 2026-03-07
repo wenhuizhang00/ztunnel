@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ztunnel-testbed - One-click setup (cluster + Istio + sample apps)
+# ztunnel-testbed - One-click setup
+# =============================================================================
+# 1. Verify cluster connectivity (create-cluster.sh does NOT create a cluster)
+# 2. Install Istio ambient
+# 3. Deploy sample apps
+# Requires: existing cluster, kubectl configured
 # =============================================================================
 
 set -euo pipefail
@@ -13,4 +18,4 @@ log_info "=== ztunnel-testbed: Full setup ==="
 "${PROJECT_ROOT}/scripts/install-istio.sh"
 "${PROJECT_ROOT}/scripts/deploy-sample-apps.sh"
 
-log_ok "Setup complete. Run functionality tests: ./scripts/run-functionality-tests.sh"
+log_ok "Setup complete. Run: make test-func"

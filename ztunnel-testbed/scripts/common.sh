@@ -46,7 +46,18 @@ ensure_kubectl_context() {
     }
   fi
   if ! kubectl cluster-info &>/dev/null; then
-    log_error "Cannot reach Kubernetes cluster. Check KUBECONFIG and kubectl context."
+    log_error "Cannot reach Kubernetes cluster."
+    echo ""
+    echo "  Next steps:"
+    echo "  1. Create a cluster first. Options:"
+    echo "     - Bare metal:  make create-baremetal  (run on control-plane node)"
+    echo "     - Minikube:    minikube start"
+    echo "     - Kind:        kind create cluster"
+    echo "  2. Or point kubectl to existing cluster:"
+    echo "     export KUBECONFIG=/path/to/kubeconfig"
+    echo "     kubectl config use-context <context>"
+    echo "  3. Verify:  kubectl cluster-info"
+    echo ""
     return 1
   fi
   return 0

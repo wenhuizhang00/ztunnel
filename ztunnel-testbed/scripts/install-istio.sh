@@ -4,7 +4,7 @@
 # =============================================================================
 # 1. Download istioctl if needed
 # 2. Install Gateway API CRDs
-# 3. Install Istio with ambient profile (standard Kubernetes)
+# 3. Install Istio with ambient profile (set ISTIO_PLATFORM for gke/eks/k3d/minikube)
 # =============================================================================
 
 set -euo pipefail

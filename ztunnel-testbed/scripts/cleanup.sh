@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ztunnel-testbed - Cleanup (uninstall Istio, remove sample apps)
+# ztunnel-testbed - Cleanup
 # =============================================================================
-# Does NOT delete the Kubernetes cluster. Use istioctl uninstall for Istio.
+# Uninstalls Istio, removes sample apps. Does NOT delete the cluster.
+# REMOVE_CACHE=1 for non-interactive cache removal.
 # =============================================================================
 
 set -euo pipefail
@@ -21,8 +22,8 @@ fi
 
 # Remove sample apps
 log_info "Removing sample apps..."
-kubectl delete namespace sample-apps --ignore-not-found --timeout=60s 2>/dev/null || true
-kubectl delete namespace sample-apps-baseline --ignore-not-found --timeout=60s 2>/dev/null || true
+kubectl delete namespace "${APP_NAMESPACE}" --ignore-not-found --timeout=60s 2>/dev/null || true
+kubectl delete namespace "${APP_NAMESPACE_BASELINE}" --ignore-not-found --timeout=60s 2>/dev/null || true
 log_ok "Sample apps removed."
 
 # Optional: remove local cache (istio download, bench results)

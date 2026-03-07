@@ -97,6 +97,6 @@ Once the cluster is ready, on your workstation:
 
 ```bash
 make install    # Install Istio ambient
-make deploy     # Deploy sample apps
+make deploy     # Deploy sample apps (grimlock, grimlock-baseline)
 make test-func
 ```

@@ -11,11 +11,11 @@ source "${SCRIPT_DIR}/../lib.sh"
 test_start "Sample app running"
 
 # http-echo deployment
-ready=$(kubectl get deployment http-echo -n sample-apps -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+ready=$(kubectl get deployment http-echo -n grimlock -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
 [[ "${ready:-0}" -ge 1 ]] || fail "http-echo has no ready replicas"
 
 # curl-client deployment
-client_ready=$(kubectl get deployment curl-client -n sample-apps -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+client_ready=$(kubectl get deployment curl-client -n grimlock -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
 [[ "${client_ready:-0}" -ge 1 ]] || fail "curl-client has no ready replicas"
 
 pass "Sample apps running (http-echo: $ready, curl-client: $client_ready)"

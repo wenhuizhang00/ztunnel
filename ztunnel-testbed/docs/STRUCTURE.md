@@ -4,11 +4,12 @@
 
 ```
 ztunnel-testbed/
-├── config/           # Configuration
-├── manifests/        # Kubernetes YAML
-├── scripts/          # Executable scripts
-├── tests/            # Functionality and performance tests
-├── docs/             # Documentation
+├── config/
+├── manifests/
+├── scripts/
+├── scripts/baremetal/
+├── tests/
+├── docs/
 ├── Makefile
 └── README.md
 ```
@@ -18,18 +19,23 @@ ztunnel-testbed/
 | File | Description |
 |------|-------------|
 | `versions.sh` | Istio, Gateway API version variables |
-| `cluster.sh` | KUBE_CONTEXT (optional) |
+| `cluster.sh` | KUBE_CONTEXT (optional, for existing cluster) |
+| `baremetal.sh` | Bare metal: CNI_PROVIDER, K8S_VERSION, POD_NETWORK_CIDR, CALICO_VERSION |
+| `cilium.sh` | Cilium version (when CNI_PROVIDER=cilium) |
+| `kubeadm-config.yaml` | kubeadm ClusterConfiguration |
+| `kubeadm-config.yaml.template` | Template with env var substitution |
 | `local.sh.example` | Template for local overrides |
 | `local.sh` | Local overrides (gitignored, create manually) |
 
 ## manifests/
 
-| Dir/File | Description |
-|----------|-------------|
-| `namespace-ambient.yaml` | Namespace example with ambient label |
-| `sample-apps/` | Ambient mesh apps (http-echo + curl-client) |
-| `sample-apps-baseline/` | Non-ambient apps for performance comparison |
-| `performance/fortio-client.yaml` | fortio load generator client |
+| Path | Description |
+|------|-------------|
+| `namespace-ambient.yaml` | Namespace with ambient label |
+| `sample-apps/simple-http-server.yaml` | Ambient mesh apps in grimlock namespace |
+| `sample-apps-baseline/http-echo-baseline.yaml` | Non-ambient apps in grimlock-baseline |
+| `performance/fortio-client.yaml` | fortio load generator |
+| `cni/calico-custom-resources.yaml` | Calico Installation CR (pod CIDR) |
 
 ## scripts/
 
@@ -37,15 +43,21 @@ ztunnel-testbed/
 |--------|-------------|
 | `common.sh` | Shared helpers (log, check_cmd, ensure_kubectl_context) |
 | `create-cluster.sh` | Verify kubectl cluster connectivity |
-| `create-cluster-baremetal.sh` | Create K8s cluster on bare metal with kubeadm (no k3s) |
-| `install-istio.sh` | Install Istio ambient mode (istioctl) |
-| `install-cilium.sh` | Install Cilium CNI (no Helm) |
-| `deploy-sample-apps.sh` | Deploy sample apps (ambient + baseline) |
+| `create-cluster-baremetal.sh` | Create K8s cluster on bare metal (kubeadm, Calico or Cilium) |
+| `install-istio.sh` | Install Istio ambient (istioctl) |
+| `install-cilium.sh` | Install Cilium CNI (Cilium CLI, no Helm) |
+| `deploy-sample-apps.sh` | Deploy sample apps to grimlock + grimlock-baseline |
 | `run-functionality-tests.sh` | Run functionality tests |
 | `run-performance-tests.sh` | Run performance tests |
-| `ztunnel-inspect.sh` | Inspect ztunnel state (workloads, logs, certs) |
+| `ztunnel-inspect.sh` | Inspect ztunnel (workloads, pods, logs, certs) |
 | `setup-all.sh` | One-click: create + install + deploy |
 | `cleanup.sh` | Uninstall Istio, remove sample apps, optional cache |
+
+## scripts/baremetal/
+
+| Script | Description |
+|--------|-------------|
+| `join-worker.sh` | Join worker node to cluster (kubeadm join) |
 
 ## tests/
 
@@ -55,10 +67,21 @@ ztunnel-testbed/
 | `functionality/test-*.sh` | Functionality test cases |
 | `performance/run-bench.sh` | Performance benchmark (fortio/curl) |
 
-## Environment variables
+## Environment Variables
 
-- `ISTIO_VERSION`, `GATEWAY_API_VERSION`, etc.: see `config/versions.sh`, `config/cluster.sh`
-- `RECREATE=1`: Force recreate existing cluster
-- `REMOVE_CACHE=1`: Remove cache in non-interactive cleanup
-- `MODE=ambient|baseline|both`: Performance test mode
-- `CONCURRENCY`, `REQUESTS`, `DURATION`: Performance test parameters
+| Variable | Config | Description |
+|----------|--------|-------------|
+| `ISTIO_VERSION` | versions.sh | Istio version |
+| `GATEWAY_API_VERSION` | versions.sh | Gateway API CRDs version |
+| `KUBE_CONTEXT` | cluster.sh | kubectl context to use |
+| `APP_NAMESPACE` | cluster.sh | Sample app namespace (default: grimlock) |
+| `APP_NAMESPACE_BASELINE` | cluster.sh | Baseline namespace (default: grimlock-baseline) |
+| `ISTIO_PLATFORM` | local.sh | gke, eks, k3d, minikube |
+| `CNI_PROVIDER` | baremetal.sh | calico \| cilium |
+| `CILIUM_VERSION` | cilium.sh | Cilium version |
+| `K8S_VERSION` | baremetal.sh | Kubernetes version for kubeadm |
+| `POD_NETWORK_CIDR` | baremetal.sh | Pod network CIDR |
+| `RECREATE` | - | Force recreate (bare metal) |
+| `REMOVE_CACHE` | - | Non-interactive cache cleanup |
+| `MODE` | - | ambient \| baseline \| both (perf) |
+| `CONCURRENCY`, `REQUESTS`, `DURATION` | - | Performance test params |

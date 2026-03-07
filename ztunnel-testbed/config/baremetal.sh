@@ -20,3 +20,9 @@ export CNI_PROVIDER="${CNI_PROVIDER:-calico}"
 
 # Calico version (for CNI install URL)
 export CALICO_VERSION="${CALICO_VERSION:-v3.28.0}"
+
+# Cilium version (when CNI_PROVIDER=cilium, see also config/cilium.sh)
+export CILIUM_VERSION="${CILIUM_VERSION:-1.16.0}"
+
+# CRI socket (containerd default)
+export CRI_SOCKET="${CRI_SOCKET:-unix:///var/run/containerd/containerd.sock}"

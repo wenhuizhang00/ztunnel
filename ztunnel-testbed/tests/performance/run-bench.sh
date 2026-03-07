@@ -26,8 +26,8 @@ timestamp=$(date +%Y%m%d-%H%M%S)
 ensure_kubectl_context
 
 # URLs
-AMBIENT_URL="http://http-echo.sample-apps.svc.cluster.local:80/"
-BASELINE_URL="http://http-echo.sample-apps-baseline.svc.cluster.local:80/"
+AMBIENT_URL="http://http-echo.grimlock.svc.cluster.local:80/"
+BASELINE_URL="http://http-echo.grimlock-baseline.svc.cluster.local:80/"
 
 run_bench() {
   local name=$1
@@ -36,19 +36,19 @@ run_bench() {
   local out_file="${OUTPUT_DIR}/${name}-${timestamp}.txt"
 
   # Prefer fortio, fallback to curl-client with simple loop
-  fortio_pod=$(kubectl get pods -n sample-apps -l app=fortio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  fortio_pod=$(kubectl get pods -n grimlock -l app=fortio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
   curl_pod=$(kubectl get pods -n "$client_ns" -l app=curl-client -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
   client_pod="${fortio_pod:-$curl_pod}"
   [[ -n "$client_pod" ]] || { log_error "No client pod found"; return 1; }
 
-  # Use fortio from sample-apps (can reach both ambient and baseline via K8s network)
+  # Use fortio from grimlock (can reach both ambient and baseline via K8s network)
   if [[ -n "$fortio_pod" ]]; then
     log_info "[$name] Running fortio: $url"
-    kubectl exec -n sample-apps "$fortio_pod" -c fortio -- fortio load \
+    kubectl exec -n grimlock "$fortio_pod" -c fortio -- fortio load \
       -c "$CONCURRENCY" -n "$REQUESTS" -qps 0 -a \
       -json /tmp/out.json "$url" 2>&1 | tee "$out_file" || true
     # Try to extract key metrics
-    kubectl exec -n sample-apps "$fortio_pod" -c fortio -- cat /tmp/out.json 2>/dev/null >> "$out_file" || true
+    kubectl exec -n grimlock "$fortio_pod" -c fortio -- cat /tmp/out.json 2>/dev/null >> "$out_file" || true
   else
     log_info "[$name] Running curl loop (basic): $url"
     {
@@ -74,12 +74,12 @@ run_bench() {
 }
 
 if [[ "$MODE" == "ambient" ]]; then
-  run_bench "ambient" "$AMBIENT_URL" "sample-apps"
+  run_bench "ambient" "$AMBIENT_URL" "grimlock"
 elif [[ "$MODE" == "baseline" ]]; then
-  run_bench "baseline" "$BASELINE_URL" "sample-apps"
+  run_bench "baseline" "$BASELINE_URL" "grimlock"
 else
-  run_bench "ambient" "$AMBIENT_URL" "sample-apps"
-  run_bench "baseline" "$BASELINE_URL" "sample-apps"
+  run_bench "ambient" "$AMBIENT_URL" "grimlock"
+  run_bench "baseline" "$BASELINE_URL" "grimlock"
 fi
 
 log_ok "Benchmark complete. Results in ${OUTPUT_DIR}/"

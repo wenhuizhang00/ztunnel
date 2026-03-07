@@ -4,12 +4,23 @@
 # cp config/local.sh.example config/local.sh
 # =============================================================================
 
+# Istio
 # ISTIO_VERSION="1.29.0"
 # GATEWAY_API_VERSION="v1.4.0"
+# ISTIO_PLATFORM="gke"   # Optional: gke, eks, k3d, minikube
 
+# Cluster
 # KUBE_CONTEXT="my-context"   # Optional: kubectl context to use
 
-# ISTIO_PLATFORM="gke"       # Optional: gke, eks, k3d, minikube for platform-specific Istio install
+# Sample app namespaces (default: grimlock, grimlock-baseline)
+# APP_NAMESPACE="grimlock"
+# APP_NAMESPACE_BASELINE="grimlock-baseline"
 
-# CNI_PROVIDER="cilium"      # For bare metal: calico (default) | cilium. Cilium uses CLI, no Helm.
-# CILIUM_VERSION="1.16.0"   # When using Cilium
+# Bare metal (when using make create-baremetal)
+# CNI_PROVIDER="calico"       # calico (default) | cilium
+# CILIUM_VERSION="1.16.0"    # When CNI_PROVIDER=cilium
+# K8S_VERSION="1.30.0"
+# POD_NETWORK_CIDR="192.168.0.0/16"
+# CALICO_VERSION="v3.28.0"
+# CRI_SOCKET="unix:///var/run/containerd/containerd.sock"
+# CONTROL_PLANE_ENDPOINT=""  # For HA: "ip-or-hostname:6443"
