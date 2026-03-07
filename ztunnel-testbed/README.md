@@ -343,18 +343,28 @@ make create-baremetal
 
 ### kubectl connects to localhost:8080 (connection refused)
 
-This means kubectl is not using a valid kubeconfig. **Quick fix (on control-plane):**
+**Root cause**: kubectl falls back to `http://localhost:8080` when it has no valid kubeconfig. Common causes:
 
+| Cause | Where it's set | Fix |
+|-------|----------------|-----|
+| `KUBECONFIG` points to non-existent file | `config/local.sh`, `~/.bashrc`, `~/.profile` | `unset KUBECONFIG` or remove/fix the line |
+| `~/.kube/config` missing on control-plane | — | `sudo cp /etc/kubernetes/admin.conf ~/.kube/config && sudo chown $(id -u):$(id -g) ~/.kube/config` |
+| `ztunnel-baremetal-config` used before copying | `config/local.sh` (workstation example) | On control-plane: do NOT set this; use default `~/.kube/config` |
+
+**Built-in auto-fix**: Scripts that use `ensure_kubectl_context` (e.g. `make setup`, `make create`) automatically:
+- Switch to `~/.kube/config` when `KUBECONFIG` points to a non-existent file
+- Copy `/etc/kubernetes/admin.conf` to `~/.kube/config` when on control-plane and config is missing (may prompt for sudo)
+
+**Manual fix (on control-plane)**:
 ```bash
-make fix-kubeconfig
-# Then in the SAME shell (or new shell after fixing .bashrc):
+unset KUBECONFIG
+mkdir -p ~/.kube
+sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config
+sudo chown $(id -u):$(id -g) ~/.kube/config
 kubectl cluster-info
 ```
 
-Or manually:
-1. **Unset bad KUBECONFIG**: `unset KUBECONFIG`
-2. **Copy kubeconfig** (on control-plane): `sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config && sudo chown $(id -u):$(id -g) ~/.kube/config`
-3. **Check shell profile**: `grep KUBECONFIG ~/.bashrc ~/.profile` — remove or fix if it points to a missing path (e.g. ztunnel-baremetal-config before copying).
+**If it persists**: Check shell profile — `grep -n KUBECONFIG ~/.bashrc ~/.profile 2>/dev/null`. Remove or fix any line that sets `KUBECONFIG` to a path that doesn't exist (e.g. `~/.kube/ztunnel-baremetal-config` before you've copied it).
 
 ### Cannot reach cluster
 

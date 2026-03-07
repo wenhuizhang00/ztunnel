@@ -14,9 +14,6 @@ setup: create install deploy
 create:
 	./scripts/create-cluster.sh
 
-fix-kubeconfig:
-	./scripts/fix-kubeconfig.sh
-
 create-baremetal:
 	./scripts/create-cluster-baremetal.sh
 

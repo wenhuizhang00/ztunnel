@@ -57,40 +57,43 @@ check_cmd() {
   return 0
 }
 
-# Verify and fix kubeconfig before cluster checks. Prints status.
-verify_kubeconfig() {
-  log_info "[1/3] Checking kubeconfig..."
-  if [[ -n "${KUBECONFIG:-}" ]]; then
-    if [[ -f "${KUBECONFIG}" ]]; then
-      log_ok "KUBECONFIG=${KUBECONFIG} (exists)"
-    else
-      if [[ -f "$HOME/.kube/config" ]]; then
-        log_warn "KUBECONFIG=${KUBECONFIG} not found. Using ~/.kube/config"
-        export KUBECONFIG="$HOME/.kube/config"
-      else
-        log_error "KUBECONFIG=${KUBECONFIG} not found, and ~/.kube/config does not exist."
-        return 1
-      fi
-    fi
-  else
+# Verify and fix kubeconfig before cluster checks. Built into ensure_kubectl_context.
+# Fixes applied automatically:
+# - KUBECONFIG points to non-existent file (e.g. ztunnel-baremetal-config) -> use ~/.kube/config
+# - ~/.kube/config missing but /etc/kubernetes/admin.conf exists (control-plane) -> copy it via sudo
+ensure_valid_kubeconfig() {
+  # 1. KUBECONFIG points to non-existent file -> fallback to ~/.kube/config
+  if [[ -n "${KUBECONFIG:-}" ]] && [[ ! -f "${KUBECONFIG}" ]]; then
     if [[ -f "$HOME/.kube/config" ]]; then
-      log_ok "Using ~/.kube/config (default)"
+      log_info "KUBECONFIG=${KUBECONFIG} not found (file does not exist). Using ~/.kube/config"
+      export KUBECONFIG="$HOME/.kube/config"
+      return 0
     else
-      log_error "No kubeconfig. Set KUBECONFIG or create ~/.kube/config"
-      return 1
+      log_warn "KUBECONFIG=${KUBECONFIG} not found, and ~/.kube/config is missing. Will try control-plane copy next."
     fi
   fi
+
+  # 2. No valid kubeconfig; on control-plane, try to copy admin.conf (requires sudo)
+  local effective_config="${KUBECONFIG:-$HOME/.kube/config}"
+  if [[ ! -f "$effective_config" ]] && [[ -f /etc/kubernetes/admin.conf ]]; then
+    log_info "No kubeconfig found. Copying from /etc/kubernetes/admin.conf (control-plane)..."
+    if mkdir -p "$HOME/.kube" 2>/dev/null && sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config" 2>/dev/null; then
+      sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config" 2>/dev/null || true
+      export KUBECONFIG="$HOME/.kube/config"
+      log_ok "Copied /etc/kubernetes/admin.conf to ~/.kube/config"
+      return 0
+    else
+      log_warn "Could not copy admin.conf (sudo may require password). Run manually: sudo cp /etc/kubernetes/admin.conf ~/.kube/config"
+    fi
+  fi
+
   return 0
 }
 
 # Ensure kubectl can reach cluster (switch context if KUBE_CONTEXT set)
-# Auto-fallback: if KUBECONFIG points to non-existent file, try ~/.kube/config
+# Auto-fix: KUBECONFIG to non-existent file -> use ~/.kube/config; missing config -> copy from admin.conf
 ensure_kubectl_context() {
-  # Auto-fix: KUBECONFIG points to non-existent file -> use ~/.kube/config if it exists
-  if [[ -n "${KUBECONFIG:-}" ]] && [[ ! -f "${KUBECONFIG}" ]] && [[ -f "$HOME/.kube/config" ]]; then
-    log_info "KUBECONFIG=${KUBECONFIG} not found. Using ~/.kube/config"
-    export KUBECONFIG="$HOME/.kube/config"
-  fi
+  ensure_valid_kubeconfig
 
   if [[ -n "${KUBE_CONTEXT:-}" ]]; then
     kubectl config use-context "${KUBE_CONTEXT}" 2>/dev/null || {
@@ -103,18 +106,29 @@ ensure_kubectl_context() {
     echo ""
     # localhost:8080 = kubectl using empty/wrong config (KUBECONFIG to non-existent file)
     if kubectl config view --minify 2>/dev/null | grep -q 'server:.*8080'; then
-      echo "  kubectl is using localhost:8080 (invalid). Likely KUBECONFIG points to a non-existent file."
-      echo "  Fix:  unset KUBECONFIG   (or set to valid path, e.g. \$HOME/.kube/config)"
+      echo "  Root cause: kubectl is using localhost:8080 (invalid default)."
+      echo "  This happens when KUBECONFIG points to a non-existent file (e.g. ~/.kube/ztunnel-baremetal-config)"
+      echo "  or when ~/.kube/config is missing. kubectl then falls back to the insecure port 8080."
+      echo ""
+      echo "  Fix (on control-plane):"
+      echo "    unset KUBECONFIG"
+      echo "    sudo cp -f /etc/kubernetes/admin.conf ~/.kube/config"
+      echo "    sudo chown \$(id -u):\$(id -g) ~/.kube/config"
+      echo ""
+      echo "  Fix (if KUBECONFIG in config/local.sh or ~/.bashrc): remove or set to existing path."
       echo ""
     fi
     if [[ -n "${KUBECONFIG:-}" ]]; then
       if [[ ! -f "${KUBECONFIG}" ]]; then
-        echo "  KUBECONFIG=${KUBECONFIG} points to a file that does not exist."
-        echo "  Fix:  unset KUBECONFIG   or copy kubeconfig from control-plane first."
+        echo "  KUBECONFIG=${KUBECONFIG}"
+        echo "  -> File does not exist. On control-plane use ~/.kube/config. On workstation, copy first:"
+        echo "     scp user@control-plane:~/.kube/config ~/.kube/ztunnel-baremetal-config"
+        echo ""
       else
-        echo "  KUBECONFIG=${KUBECONFIG} exists but cluster is unreachable (API server down, wrong host, or firewall)."
+        echo "  KUBECONFIG=${KUBECONFIG} exists but cluster is unreachable."
+        echo "  -> API server may be down, wrong host, or firewall blocking. Check: kubectl cluster-info dump"
+        echo ""
       fi
-      echo ""
     fi
     echo "  Next steps:"
     echo "  1. Create a cluster first. Options:"
