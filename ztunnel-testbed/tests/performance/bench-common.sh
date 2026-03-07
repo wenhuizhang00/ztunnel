@@ -137,6 +137,11 @@ run_and_report() {
   [[ -n "$p99" ]] || p99="N/A"
   p999=$(get_pct "99.9%")
 
+  # Min/max from "Aggregated Function Time : ... min X.XXX max X.XXX"
+  local lat_min lat_max
+  lat_min=$(echo "$raw" | grep "Aggregated Function" | grep -oE 'min [0-9.e+-]+' | grep -oE '[0-9.e+-]+' || echo "N/A")
+  lat_max=$(echo "$raw" | grep "Aggregated Function" | grep -oE 'max [0-9.e+-]+' | grep -oE '[0-9.e+-]+' || echo "N/A")
+
   # Success rate from "Code 200 : NNNNN (NN.N %)"
   ok_pct=$(echo "$raw" | grep "Code 200" | grep -oE '[0-9]+\.[0-9]+ %' | head -1 || echo "")
 
@@ -146,23 +151,63 @@ run_and_report() {
     awk "BEGIN {printf \"%.1f\", $v * 1000000}" 2>/dev/null || echo "$v"
   }
 
-  # Compute average of P50/P90/P99/P99.9 in microseconds
+  # Average of P50/P90/P99/P99.9 in microseconds
   local avg_pct_us="N/A"
   if [[ "$p50" != "N/A" ]] && [[ "$p90" != "N/A" ]] && [[ "$p99" != "N/A" ]] && [[ "$p999" != "N/A" ]]; then
     avg_pct_us=$(awk "BEGIN {printf \"%.1f\", ($p50 + $p90 + $p99 + $p999) / 4.0 * 1000000}" 2>/dev/null || echo "N/A")
   fi
 
-  printf "  %-28s  %10s  %9s  %9s  %s\n" \
-    "$label" "${qps:-N/A}" "$(to_us "$avg")us" "${avg_pct_us}us" "${ok_pct}"
+  # Extract payload size from label (e.g. "64B POST" -> 64)
+  local payload_bytes
+  payload_bytes=$(echo "$label" | grep -oE '^[0-9]+' || echo "0")
+
+  # Compute throughput in Mbps and Kpps
+  local mbps="N/A" kpps="N/A"
+  if [[ "$qps" != "N/A" ]] && [[ "$payload_bytes" -gt 0 ]]; then
+    mbps=$(awk "BEGIN {printf \"%.2f\", $qps * $payload_bytes * 8 / 1000000}" 2>/dev/null || echo "N/A")
+    kpps=$(awk "BEGIN {printf \"%.1f\", $qps / 1000}" 2>/dev/null || echo "N/A")
+  elif [[ "$qps" != "N/A" ]]; then
+    kpps=$(awk "BEGIN {printf \"%.1f\", $qps / 1000}" 2>/dev/null || echo "N/A")
+  fi
+
+  # Output format depends on BENCH_TYPE
+  case "${BENCH_TYPE:-all}" in
+    throughput)
+      printf "  %-22s  %10s  %8s  %10s  %s\n" \
+        "$label" "${qps:-N/A}" "${kpps}" "${mbps}" "${ok_pct}"
+      ;;
+    latency)
+      printf "  %-22s  %8s  %8s  %8s  %10s  %s\n" \
+        "$label" "$(to_us "$lat_min")" "$(to_us "$avg")" "$(to_us "$lat_max")" "${avg_pct_us}" "${ok_pct}"
+      ;;
+    *)
+      printf "  %-22s  %10s  %8s  %10s  %8s  %8s  %8s  %10s  %s\n" \
+        "$label" "${qps:-N/A}" "${kpps}" "${mbps}" "$(to_us "$lat_min")" "$(to_us "$avg")" "$(to_us "$lat_max")" "${avg_pct_us}" "${ok_pct}"
+      ;;
+  esac
 }
 
 print_header() {
-  printf "  %-28s  %10s  %9s  %9s  %s\n" \
-    "Test" "QPS" "Avg(us)" "AvgPct(us)" "OK%"
-  printf "  %-28s  %10s  %9s  %9s  %s\n" \
-    "----------------------------" "----------" "---------" "----------" "------"
-  printf "  %-28s  %10s  %9s  %9s\n" \
-    "" "" "  (mean)" "(mean of P50/P90/P99/P99.9)"
+  case "${BENCH_TYPE:-all}" in
+    throughput)
+      printf "  %-22s  %10s  %8s  %10s  %s\n" \
+        "Test" "QPS" "Kpps" "Mbps" "OK%"
+      printf "  %-22s  %10s  %8s  %10s  %s\n" \
+        "----------------------" "----------" "--------" "----------" "------"
+      ;;
+    latency)
+      printf "  %-22s  %8s  %8s  %8s  %10s  %s\n" \
+        "Test" "Min(us)" "Avg(us)" "Max(us)" "AvgPct(us)" "OK%"
+      printf "  %-22s  %8s  %8s  %8s  %10s  %s\n" \
+        "----------------------" "--------" "--------" "--------" "----------" "------"
+      ;;
+    *)
+      printf "  %-22s  %10s  %8s  %10s  %8s  %8s  %8s  %10s  %s\n" \
+        "Test" "QPS" "Kpps" "Mbps" "Min(us)" "Avg(us)" "Max(us)" "AvgPct(us)" "OK%"
+      printf "  %-22s  %10s  %8s  %10s  %8s  %8s  %8s  %10s  %s\n" \
+        "----------------------" "----------" "--------" "----------" "--------" "--------" "--------" "----------" "------"
+      ;;
+  esac
 }
 
 collect_ztunnel_stats() {
