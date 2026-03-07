@@ -145,6 +145,14 @@ else
   log_warn "No HTTP_PROXY/HTTPS_PROXY. If behind corporate proxy, image pulls may time out. Set: export HTTP_PROXY=http://proxy:3128"
 fi
 
+# If cluster already exists (from previous run or partial failure), reset first
+if [[ -f /etc/kubernetes/admin.conf ]] || [[ -f /etc/kubernetes/manifests/kube-apiserver.yaml ]] || ss -tlnp 2>/dev/null | grep -q ':6443 '; then
+  log_info "Existing cluster detected. Running kubeadm reset -f..."
+  sudo kubeadm reset -f 2>/dev/null || true
+  sudo rm -rf /etc/cni/net.d 2>/dev/null || true
+  log_ok "Reset complete. Proceeding with fresh init."
+fi
+
 # CHOKE: kubeadm init (preflight, image pull from registry.k8s.io, etcd, control-plane)
 log_step "KUBEADM" "Running kubeadm init (preflight + image pull + etcd + control-plane - may take 2-5 min)..."
 kubeadm_start=$(date +%s)
