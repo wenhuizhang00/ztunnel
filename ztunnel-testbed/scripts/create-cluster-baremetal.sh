@@ -11,13 +11,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# #region agent log
-_DBG_ROOT="$(cd "${SCRIPT_DIR}/../.." 2>/dev/null && pwd || echo "${PROJECT_ROOT}")"
-_DBG_LOG="${_DBG_ROOT}/.cursor/debug-d618c2.log"
-mkdir -p "$(dirname "$_DBG_LOG")"
-_dbg() { local _loc="$1" _msg="$2" _data="$3"; echo "{\"sessionId\":\"d618c2\",\"location\":\"${_loc}\",\"message\":\"${_msg}\",\"data\":${_data},\"timestamp\":$(date +%s)000}" >> "$_DBG_LOG"; }
-# #endregion
-
 # Load config
 source "${PROJECT_ROOT}/config/versions.sh" 2>/dev/null || true
 source "${PROJECT_ROOT}/config/baremetal.sh" 2>/dev/null || true
@@ -167,36 +160,22 @@ kubeadm_start=$(date +%s)
 sudo -E kubeadm init --config "$KUBEADM_CONFIG"
 log_step_ok "KUBEADM" "kubeadm init complete" "$(( $(date +%s) - kubeadm_start ))s"
 
-# #region agent log
-_dbg "create-cluster-baremetal.sh:post-init" "H4,H5: post kubeadm-init state" "{\"admin_conf_exists\":\"$(test -f /etc/kubernetes/admin.conf && echo yes || echo no)\",\"apiserver_manifest\":\"$(test -f /etc/kubernetes/manifests/kube-apiserver.yaml && echo yes || echo no)\",\"port_6443\":\"$(ss -tlnp 2>/dev/null | grep -c ':6443 ' || echo 0)\"}"
-# #endregion
-
 # Setup kubeconfig for current user
 log_step "KUBECONFIG" "Setting up kubeconfig..."
 mkdir -p "$HOME/.kube"
 sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
 sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 export KUBECONFIG="$HOME/.kube/config"
-
-# #region agent log
-_admin_server=$(grep 'server:' /etc/kubernetes/admin.conf 2>/dev/null | head -1 | awk '{print $2}' || echo "N/A")
-_user_server=$(grep 'server:' "$HOME/.kube/config" 2>/dev/null | head -1 | awk '{print $2}' || echo "N/A")
-_dbg "create-cluster-baremetal.sh:kubeconfig-setup" "H1,H3,H5: kubeconfig state after copy" "{\"HOME\":\"$HOME\",\"KUBECONFIG\":\"${KUBECONFIG:-unset}\",\"user_config_exists\":\"$(test -f $HOME/.kube/config && echo yes || echo no)\",\"admin_server\":\"${_admin_server}\",\"user_server\":\"${_user_server}\",\"config_owner\":\"$(ls -ln $HOME/.kube/config 2>/dev/null | awk '{print $3\":\"$4}' || echo N/A)\",\"current_uid\":\"$(id -u):$(id -g)\",\"root_config_exists\":\"$(sudo test -f /root/.kube/config && echo yes || echo no)\"}"
-# #endregion
-
 log_ok "kubeconfig ready"
 
-# Also copy to root's home so 'sudo kubectl' works (H2)
-# #region agent log
-_dbg "create-cluster-baremetal.sh:root-kubeconfig" "H2: checking root kubeconfig" "{\"root_home\":\"/root\",\"root_kube_dir_exists\":\"$(sudo test -d /root/.kube && echo yes || echo no)\",\"root_config_exists\":\"$(sudo test -f /root/.kube/config && echo yes || echo no)\"}"
-# #endregion
+# Also copy to root's home so 'sudo kubectl' finds a config
 sudo mkdir -p /root/.kube
 sudo cp -f /etc/kubernetes/admin.conf /root/.kube/config
 
-# --- Fix H6: corporate proxy blocks kubectl unless NO_PROXY is set ---
-# The system's NO_PROXY has domain suffixes only (.0,.1,...) but NO cluster IP CIDRs.
-# The script sets NO_PROXY during execution, but it doesn't persist to the parent shell.
-# Three-layer fix: (1) bashrc for user shells, (2) sudoers env_keep, (3) kubectl wrapper
+# --- Corporate proxy bypass for kubectl ---
+# The system's NO_PROXY may lack cluster IP CIDRs. Without them, the HTTPS proxy
+# intercepts kubectl connections and returns 403 Forbidden.
+# Three-layer fix: (1) bashrc, (2) sudoers env_keep, (3) kubectl wrapper
 _K8S_NO_PROXY="localhost,127.0.0.1,10.0.0.0/8,10.96.0.0/12,172.16.0.0/12,192.168.0.0/16,${NODE_IP:-}"
 
 # Layer 1: Persist KUBECONFIG + NO_PROXY to bashrc for new interactive shells
@@ -248,16 +227,6 @@ for i in {1..30}; do
   [[ $i -eq 30 ]] && { log_error "kubectl get nodes failed after 30s. Check: export KUBECONFIG=$HOME/.kube/config"; exit 1; }
   sleep 1
 done
-
-# #region agent log
-_kubectl_out=$(kubectl get nodes -o wide 2>&1 || true)
-_sudo_out=$(sudo kubectl get nodes -o wide 2>&1 || true)
-_wrapper_exists=$(test -f /usr/local/bin/.kubectl-wrapper && echo yes || echo no)
-_which_kubectl=$(which kubectl 2>/dev/null || echo "N/A")
-_sudo_which=$(sudo which kubectl 2>/dev/null || echo "N/A")
-_sudoers_exists=$(test -f /etc/sudoers.d/99-k8s-proxy-env && echo yes || echo no)
-_dbg "create-cluster-baremetal.sh:post-verify" "H6-wrapper: kubectl verification" "{\"kubectl_works\":\"$(kubectl get nodes &>/dev/null && echo yes || echo no)\",\"sudo_kubectl_works\":\"$(sudo kubectl get nodes &>/dev/null && echo yes || echo no)\",\"wrapper_installed\":\"${_wrapper_exists}\",\"which_kubectl\":\"${_which_kubectl}\",\"sudo_which_kubectl\":\"${_sudo_which}\",\"sudoers_drop_in\":\"${_sudoers_exists}\",\"kubectl_output\":\"$(echo "$_kubectl_out" | head -2 | tr '\n' '|')\",\"sudo_output\":\"$(echo "$_sudo_out" | head -2 | tr '\n' '|')\"}"
-# #endregion
 
 # Rename context to grimlock-cell (matches KUBE_CONTEXT default)
 ctx=$(kubectl config current-context 2>/dev/null) || true
@@ -336,16 +305,11 @@ else
 fi
 echo ""
 log_ok "Cluster ready. kubectl is configured for user '$USER' and root."
-echo ""
-echo "  # In THIS shell, run once:"
-echo "  source ~/.bashrc"
+
+# Source bashrc so KUBECONFIG and NO_PROXY take effect in this shell immediately
+source "$HOME/.bashrc" 2>/dev/null || true
+
 echo ""
 echo "  # All new shells and 'sudo kubectl' work automatically."
 echo ""
-# #region agent log
-_wrapper_check=$(test -f /usr/local/bin/.kubectl-wrapper && echo yes || echo no)
-_final_kubectl=$(kubectl cluster-info 2>&1 | head -1 | tr '"' "'")
-_final_sudo=$(sudo kubectl cluster-info 2>&1 | head -1 | tr '"' "'")
-_dbg "create-cluster-baremetal.sh:final" "H6-final: end-to-end verification" "{\"wrapper_installed\":\"${_wrapper_check}\",\"which_kubectl\":\"$(which kubectl 2>/dev/null)\",\"sudo_which\":\"$(sudo which kubectl 2>/dev/null)\",\"user_kubectl\":\"${_final_kubectl}\",\"sudo_kubectl\":\"${_final_sudo}\",\"api_healthy\":\"$(curl -sk --noproxy '*' https://10.200.15.195:6443/healthz 2>/dev/null || echo no)\"}"
-# #endregion
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
