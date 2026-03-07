@@ -75,55 +75,73 @@ run_and_report() {
   shift 3
   local extra_args=("$@")
 
-  local load_args=(-c "$conc" -qps 0)
+  # Build fortio command as a single string to run via sh -c inside the container
+  local cmd="fortio load -c $conc -qps 0"
   if [[ "$REQUESTS" -gt 0 ]]; then
-    load_args+=(-n "$REQUESTS")
+    cmd+=" -n $REQUESTS"
   else
-    load_args+=(-t "$DURATION")
+    cmd+=" -t $DURATION"
   fi
-  load_args+=("${extra_args[@]}")
-  load_args+=("$url")
+  for arg in "${extra_args[@]}"; do
+    cmd+=" $arg"
+  done
+  cmd+=" '$url' > /tmp/fortio-out.txt 2>&1"
 
-  # Run fortio and capture text output (includes percentiles)
+  # Run fortio inside the container, saving output to a file
+  kubectl exec -n "${APP_NAMESPACE}" "$FORTIO_POD" -c fortio -- sh -c "$cmd" || true
+
+  # Read the output file from the container
   local raw_output
-  raw_output=$(kubectl exec -n "${APP_NAMESPACE}" "$FORTIO_POD" -c fortio -- \
-    fortio load "${load_args[@]}" 2>&1) || true
+  raw_output=$(kubectl exec -n "${APP_NAMESPACE}" "$FORTIO_POD" -c fortio -- cat /tmp/fortio-out.txt 2>/dev/null) || true
 
-  if [[ -z "$raw_output" ]]; then
-    printf "  %-30s  %10s  %8s  %8s  %8s  %8s  %8s\n" "$label" "FAILED" "-" "-" "-" "-" "-"
+  if [[ -z "$raw_output" ]] || ! echo "$raw_output" | grep -q "target"; then
+    # Show first few lines of error for debugging
+    local err_preview
+    err_preview=$(echo "$raw_output" | head -5)
+    printf "  %-30s  %10s  %s\n" "$label" "FAILED" "${err_preview:0:80}"
     return
   fi
 
-  # Parse fortio text output
+  # Parse fortio text output using grep
+  # Fortio output format:
+  #   Sockets used: 4
+  #   ...
+  #   # target 50% 0.000123
+  #   # target 75% 0.000234
+  #   # target 90% 0.000345
+  #   # target 99% 0.000456
+  #   # target 99.9% 0.000567
+  #   ...
+  #   Jitter: false
+  #   Code 200 : 12345 (100.0 %)
+  #   ...
+  #   All done 12345 calls (plus 4 warmup) 0.123 avg, 9876.5 qps
   local qps avg p50 p90 p99 p999 ok_pct
-  qps=$(echo "$raw_output" | grep -oP 'Aggregated Function.*qps=\K[0-9.]+' || echo "$raw_output" | grep 'target.*qps' | grep -oP '[0-9.]+' | tail -1 || echo "N/A")
-  [[ -z "$qps" ]] && qps=$(echo "$raw_output" | grep -i 'qps' | head -1 | grep -oP '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
 
-  avg=$(echo "$raw_output" | grep -oP 'avg\s+\K[0-9.]+' | head -1 || echo "N/A")
-  p50=$(echo "$raw_output" | grep -P '^\# target 50%' | grep -oP '[0-9.]+$' || echo "$raw_output" | grep '50%' | grep -oP '[0-9.]+' | tail -1 || echo "N/A")
-  p90=$(echo "$raw_output" | grep -P '^\# target 90%' | grep -oP '[0-9.]+$' || echo "$raw_output" | grep '90%' | grep -oP '[0-9.]+' | tail -1 || echo "N/A")
-  p99=$(echo "$raw_output" | grep -P '^\# target 99%' | grep -oP '[0-9.]+$' || echo "$raw_output" | grep '99%' | grep -oP '[0-9.]+' | tail -1 || echo "N/A")
-  p999=$(echo "$raw_output" | grep -P '^\# target 99\.9%' | grep -oP '[0-9.]+$' || echo "$raw_output" | grep '99.9%' | grep -oP '[0-9.]+' | tail -1 || echo "N/A")
+  # QPS from "All done ... qps" line
+  qps=$(echo "$raw_output" | grep "All done" | grep -oE '[0-9]+\.[0-9]+ qps' | grep -oE '[0-9]+\.[0-9]+' || echo "N/A")
 
-  # Convert seconds to milliseconds for latency
+  # Avg latency from "All done ... avg" line (in seconds)
+  avg=$(echo "$raw_output" | grep "All done" | grep -oE '[0-9]+\.[0-9]+ avg' | grep -oE '[0-9]+\.[0-9]+' || echo "N/A")
+
+  # Percentiles from "# target NN% VALUE" lines
+  p50=$(echo "$raw_output" | grep "target 50%" | awk '{print $NF}' || echo "N/A")
+  p90=$(echo "$raw_output" | grep "target 90%" | awk '{print $NF}' || echo "N/A")
+  p99=$(echo "$raw_output" | grep "target 99%" | grep -v "99.9" | awk '{print $NF}' || echo "N/A")
+  p999=$(echo "$raw_output" | grep "target 99.9%" | awk '{print $NF}' || echo "N/A")
+
+  # Success rate from "Code 200 : NNNN (NN.N %)" line
+  ok_pct=$(echo "$raw_output" | grep "Code 200" | grep -oE '[0-9]+\.[0-9]+ %' | head -1 || echo "")
+
+  # Convert seconds to milliseconds
   to_ms() {
     local val="$1"
-    [[ "$val" == "N/A" ]] && echo "N/A" && return
+    [[ -z "$val" || "$val" == "N/A" ]] && echo "N/A" && return
     awk "BEGIN {printf \"%.3f\", $val * 1000}" 2>/dev/null || echo "$val"
   }
 
-  local avg_ms p50_ms p90_ms p99_ms p999_ms
-  avg_ms=$(to_ms "$avg")
-  p50_ms=$(to_ms "$p50")
-  p90_ms=$(to_ms "$p90")
-  p99_ms=$(to_ms "$p99")
-  p999_ms=$(to_ms "$p999")
-
-  # HTTP success rate
-  ok_pct=$(echo "$raw_output" | grep -oP 'All done.*success\s+\K[0-9.]+' || echo "$raw_output" | grep 'Code 200' | grep -oP '[0-9.]+%' | head -1 || echo "")
-
   printf "  %-30s  %10s  %8s  %8s  %8s  %8s  %8s  %s\n" \
-    "$label" "${qps:-N/A}" "${avg_ms}ms" "${p50_ms}ms" "${p90_ms}ms" "${p99_ms}ms" "${p999_ms}ms" "${ok_pct:+${ok_pct}% ok}"
+    "$label" "${qps:-N/A}" "$(to_ms "$avg")ms" "$(to_ms "$p50")ms" "$(to_ms "$p90")ms" "$(to_ms "$p99")ms" "$(to_ms "$p999")ms" "${ok_pct:+${ok_pct}ok}"
 }
 
 # --- Header for table ---
@@ -135,12 +153,14 @@ print_table_header() {
 }
 
 # === Benchmark: Throughput & Latency by Payload Size ===
+# Uses HTTP POST with varying body sizes to measure how ztunnel handles
+# different payload sizes. Reports QPS and latency percentiles per size.
 bench_by_payload_size() {
   local mode_name="$1" url="$2"
 
   echo ""
   echo "=================================================================="
-  echo "  Throughput & Latency by Payload Size ($mode_name)"
+  echo "  Throughput & Latency by Payload Size - POST ($mode_name)"
   echo "  URL: $url"
   echo "  Concurrency: $CONCURRENCY, Duration: $DURATION"
   echo "=================================================================="
@@ -149,8 +169,9 @@ bench_by_payload_size() {
 
   IFS=',' read -ra SIZES <<< "$PACKET_SIZES"
   for size in "${SIZES[@]}"; do
-    log_step "BENCH" "[$mode_name-${size}B] payload=${size}B, c=$CONCURRENCY..."
-    run_and_report "${size}B payload" "$url" "$CONCURRENCY" -payload-size "$size"
+    log_step "BENCH" "[$mode_name-${size}B] POST payload=${size}B, c=$CONCURRENCY..."
+    run_and_report "${size}B POST" "$url" "$CONCURRENCY" \
+      "-payload-size" "$size" "-content-type" "application/octet-stream"
   done
 }
 
@@ -171,10 +192,11 @@ bench_http_app() {
   run_and_report "HTTP GET" "$url" "$CONCURRENCY"
 
   log_step "BENCH" "[$mode_name] HTTP GET (no keep-alive)..."
-  run_and_report "HTTP GET (no keepalive)" "$url" "$CONCURRENCY" -keepalive=false
+  run_and_report "HTTP GET (no keepalive)" "$url" "$CONCURRENCY" "-keepalive=false"
 
   log_step "BENCH" "[$mode_name] HTTP POST 1KB..."
-  run_and_report "HTTP POST 1KB" "$url" "$CONCURRENCY" -payload-size 1024 -content-type "application/json"
+  run_and_report "HTTP POST 1KB" "$url" "$CONCURRENCY" \
+    "-payload-size" "1024" "-content-type" "application/json"
 
   log_step "BENCH" "[$mode_name] HTTP GET burst (c=32)..."
   run_and_report "HTTP GET (c=32 burst)" "$url" 32
