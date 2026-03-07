@@ -189,9 +189,9 @@ if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
 else
   log_step "CALICO" "Installing Calico CNI (${CALICO_VERSION}) - fetching manifests..."
   calico_start=$(date +%s)
-  kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/operator-crds.yaml" 2>/dev/null || true
-  kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
-  kubectl create -f "${PROJECT_ROOT}/manifests/cni/calico-custom-resources.yaml"
+  kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/operator-crds.yaml"
+  kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+  kubectl apply -f "${PROJECT_ROOT}/manifests/cni/calico-custom-resources.yaml"
   log_step "CALICO" "Waiting for Calico pods (sleep 15s + wait up to 180s)..."
   sleep 15
   kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=180s 2>/dev/null || \
