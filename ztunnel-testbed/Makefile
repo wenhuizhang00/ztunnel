@@ -4,7 +4,7 @@
 # Convenience targets for common operations
 # =============================================================================
 
-.PHONY: setup create install deploy build-images load-images test-func test-list test-perf bench-throughput bench-latency bench-throughput-cross bench-latency-cross bench-ambient bench-baseline bench-quick install-prereqs-baremetal inspect clean help
+.PHONY: setup create install deploy build-images load-images test-func test-list test-perf bench-throughput bench-latency bench-throughput-cross bench-latency-cross bench-ambient bench-baseline bench-quick setup-two-node verify-two-node bench-two-node clean-two-node install-prereqs-baremetal inspect clean help
 
 SHELL := /bin/bash
 
@@ -85,6 +85,19 @@ bench-baseline:
 bench-quick:
 	DURATION=5s SKIP_SWEEP=1 ./scripts/run-performance-tests.sh
 
+# Two-node test: server on control-plane (10.200.15.195), client on worker (10.136.0.75)
+setup-two-node:
+	./scripts/setup-two-node-test.sh deploy
+
+verify-two-node:
+	./scripts/setup-two-node-test.sh verify
+
+bench-two-node:
+	./tests/performance/bench-two-node.sh
+
+clean-two-node:
+	./scripts/setup-two-node-test.sh clean
+
 inspect:
 	./scripts/ztunnel-inspect.sh all
 
@@ -123,6 +136,10 @@ help:
 	@echo "    make bench-ambient          - All benchmarks (ambient only)"
 	@echo "    make bench-baseline         - All benchmarks (baseline only)"
 	@echo "    make bench-quick            - Quick benchmark (5s, no sweep)"
+	@echo "    make setup-two-node         - Deploy server on 10.200.15.195, client on 10.136.0.75"
+	@echo "    make verify-two-node        - Verify two-node pod placement + connectivity"
+	@echo "    make bench-two-node         - Run cross-node benchmark (client→ztunnel→server)"
+	@echo "    make clean-two-node         - Remove two-node test pods"
 	@echo ""
 	@echo "  Other:"
 	@echo "    make build-images       - Build local http-echo, curl-client, fortio images"

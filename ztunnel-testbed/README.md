@@ -104,6 +104,145 @@ Worker nodes are set up automatically via SSH. Requirements:
 
 For multiple workers: `WORKER_NODES="10.136.0.75,10.136.0.76" make create-baremetal`
 
+### Two-Node Cross-Node Testing
+
+After setting up a multi-node cluster, deploy dedicated cross-node test pods for benchmarking the ztunnel HBONE tunnel between two specific nodes.
+
+#### How ztunnel ambient traffic routing works
+
+When a pod is in an ambient namespace (`istio.io/dataplane-mode=ambient`), the Istio CNI plugin configures the node's network to redirect all traffic from that pod through the local ztunnel proxy. Here is the full packet path for a cross-node request:
+
+```
+┌─ Worker node (10.136.0.75) ──────────────────────────────────────────────┐
+│                                                                           │
+│  1. fortio-client-wk pod sends HTTP request to fortio-server-cp:8080     │
+│     (destination = ClusterIP or Pod IP on the control-plane)             │
+│                                                                           │
+│  2. istio-cni + iptables/eBPF redirects the packet to ztunnel            │
+│     ┌──────────────────────────────────────────────────────────┐         │
+│     │ istio-cni-node (DaemonSet) configures:                   │         │
+│     │  • iptables TPROXY rules (Calico/default CNI), OR       │         │
+│     │  • eBPF tc programs (Cilium CNI)                        │         │
+│     │ All outbound TCP from ambient pods → ztunnel:15001      │         │
+│     │ All inbound TCP to ambient pods → ztunnel:15008         │         │
+│     └──────────────────────────────────────────────────────────┘         │
+│                                                                           │
+│  3. ztunnel (worker) intercepts the outbound connection                  │
+│     • Looks up the destination workload in its xDS config from Istiod   │
+│     • Determines the destination is on a DIFFERENT node                  │
+│     • Initiates an HBONE tunnel to the remote ztunnel                   │
+│                                                                           │
+│  4. HBONE tunnel establishment (mTLS):                                   │
+│     • ztunnel (worker) opens a TCP connection to ztunnel (CP):15008     │
+│     • TLS handshake using SPIFFE certificates:                          │
+│       - Client cert: spiffe://cluster.local/ns/grimlock/sa/default      │
+│       - Server cert: spiffe://cluster.local/ns/istio-system/sa/ztunnel  │
+│     • Sends HTTP/2 CONNECT request with target pod identity             │
+│     • Original L4 payload is tunneled inside the encrypted HBONE stream │
+│                                                                           │
+└───────────────── TCP over network (encrypted) ───────────────────────────┘
+                              │
+                              ▼
+┌─ Control-plane node (10.200.15.195) ─────────────────────────────────────┐
+│                                                                           │
+│  5. ztunnel (control-plane) receives the HBONE connection on :15008     │
+│     • Terminates TLS, verifies client SPIFFE identity                   │
+│     • Checks L4 AuthorizationPolicy (if any)                            │
+│     • Extracts the original TCP stream from the HBONE tunnel            │
+│                                                                           │
+│  6. ztunnel delivers the packet to fortio-server-cp pod                 │
+│     • Connects to the pod's real IP:port (via the pod network)          │
+│     • No iptables redirect needed here — ztunnel connects directly      │
+│                                                                           │
+│  7. fortio-server-cp processes the HTTP request and responds            │
+│     • Response follows the reverse path back through ztunnel            │
+│                                                                           │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+#### ztunnel on each node
+
+Every node in the cluster runs a ztunnel pod (DaemonSet in `istio-system`). All ztunnel instances are identical — there is no difference between ztunnel on the worker and ztunnel on the control-plane. Each ztunnel:
+
+- **Receives xDS config from Istiod**: workload list, policies, certificates
+- **Handles outbound**: intercepts traffic FROM local pods, encrypts with mTLS, tunnels via HBONE
+- **Handles inbound**: receives HBONE tunnels FROM remote ztunnels, decrypts, delivers to local pods
+- **Manages certificates**: holds SPIFFE identities for all local workloads, auto-rotated by Istiod
+
+#### HBONE mTLS protocol
+
+HBONE (HTTP-Based Overlay Network Encapsulation) is the tunneling protocol used by ztunnel:
+
+1. **Transport**: TCP connection between ztunnel instances (port 15008)
+2. **Encryption**: TLS 1.3 with SPIFFE X.509 certificates (mTLS — both sides present certs)
+3. **Tunneling**: HTTP/2 CONNECT method carries the original TCP stream inside the encrypted channel
+4. **Identity**: Each workload has a SPIFFE identity (e.g., `spiffe://cluster.local/ns/grimlock/sa/default`)
+5. **Connection reuse**: Multiple L4 connections between pods on the same node pair share a single HBONE tunnel
+
+#### Traffic interception: iptables vs eBPF
+
+How traffic gets redirected from pods to ztunnel depends on the CNI:
+
+| CNI | Interception method | How it works |
+|-----|-------------------|--------------|
+| **Calico** (default) | iptables TPROXY | `istio-cni-node` adds iptables rules in the pod's network namespace. Outbound TCP → TPROXY to ztunnel:15001. Inbound TCP → TPROXY to ztunnel:15008. |
+| **Cilium** | eBPF tc programs | `istio-cni-node` attaches eBPF programs to the pod's veth interface. More efficient than iptables; no conntrack overhead. Requires `cni.exclusive=false` in Cilium config. |
+
+The testbed scripts handle this automatically:
+
+- `create-cluster-baremetal.sh` installs Calico (default) or Cilium (`CNI_PROVIDER=cilium`)
+- `install-istio.sh` installs Istio ambient with `istio-cni-node` DaemonSet
+- `istio-cni-node` detects the CNI and configures the appropriate interception rules
+- No manual iptables or eBPF configuration is needed
+
+#### Setup scripts explained
+
+| Script | What it does |
+|--------|-------------|
+| `create-cluster-baremetal.sh` | Creates k8s cluster with kubeadm, installs Calico/Cilium CNI, configures containerd, sets up kubeconfig |
+| `install-istio.sh` | Downloads istioctl, installs Gateway API CRDs, runs `istioctl install --set profile=ambient` which deploys Istiod + ztunnel DaemonSet + istio-cni-node DaemonSet |
+| `deploy-sample-apps.sh` | Creates grimlock namespace with `istio.io/dataplane-mode=ambient` label (triggers ztunnel interception), deploys test pods |
+| `setup-two-node-test.sh` | Pins fortio-server-cp to control-plane node and fortio-client-wk to worker node using `nodeName` scheduling |
+
+#### Running the two-node benchmark
+
+```bash
+# 1. Deploy server on control-plane, client on worker
+make setup-two-node
+
+# 2. Verify pod placement and connectivity
+make verify-two-node
+
+# 3. Run cross-node throughput + latency benchmark
+make bench-two-node
+
+# 4. Custom parameters
+DURATION=30s CONCURRENCY=64 make bench-two-node
+
+# 5. Clean up when done
+make clean-two-node
+```
+
+The two-node benchmark measures:
+- **Throughput**: QPS/Kpps/Mbps by payload size (64-1500B) across nodes
+- **Concurrency sweep**: Peak throughput at c=1,4,8,16,32,64,128
+- **Latency**: Min/Avg/Max/P99 in microseconds per payload size and HTTP method
+- **ztunnel resource usage**: CPU/memory before and after load
+
+Node IPs default to `CONTROL_PLANE_IP=10.200.15.195` and `WORKER_IP=10.136.0.75`. Override in `config/local.sh`:
+
+```bash
+CONTROL_PLANE_IP="10.200.15.195"
+WORKER_IP="10.136.0.75"
+```
+
+| Target | Description |
+|--------|-------------|
+| `make setup-two-node` | Deploy fortio-server on control-plane, fortio-client on worker |
+| `make verify-two-node` | Verify pod placement, connectivity, ztunnel enrollment |
+| `make bench-two-node` | Run cross-node throughput + latency benchmark |
+| `make clean-two-node` | Remove two-node test pods |
+
 ### Option C: Other cluster tools (minikube, kind, etc.)
 
 ```bash
