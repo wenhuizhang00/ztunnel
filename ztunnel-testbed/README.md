@@ -14,6 +14,307 @@ A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kube
 - **Performance suite**: Throughput by payload size, P99 latency, HTTP benchmarks, concurrency sweep
 - **Inspection**: ztunnel workloads, logs, certificates, config
 
+## Architecture: Pods and Networks
+
+### Cluster layout (two-node example)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Kubernetes Cluster                                   │
+│                                                                             │
+│  ┌─ Control-plane node (<control-plane-ip>) ─────────────────────────────┐ │
+│  │                                                                        │ │
+│  │  System pods (kube-system):                                           │ │
+│  │    • kube-apiserver          (API server, port 6443)                  │ │
+│  │    • etcd                    (cluster state store)                    │ │
+│  │    • kube-controller-manager (reconciliation loops)                   │ │
+│  │    • kube-scheduler          (pod scheduling)                        │ │
+│  │    • coredns × 2             (cluster DNS, 10.96.0.10)               │ │
+│  │    • kube-proxy              (iptables rules for Services)           │ │
+│  │                                                                        │ │
+│  │  CNI pods (calico-system):                                            │ │
+│  │    • calico-node             (BGP routing, network policy)           │ │
+│  │    • calico-typha            (datastore proxy)                       │ │
+│  │    • calico-kube-controllers (Calico reconciliation)                 │ │
+│  │    • calico-apiserver        (Calico API)                            │ │
+│  │                                                                        │ │
+│  │  Istio pods (istio-system):                                           │ │
+│  │    • istiod                  (control plane: xDS, certs, discovery)  │ │
+│  │    • ztunnel                 (L4 proxy, mTLS, per-node DaemonSet)    │ │
+│  │    • istio-cni-node          (traffic redirect: iptables/eBPF)       │ │
+│  │                                                                        │ │
+│  │  App pods (grimlock namespace, ambient mode):                         │ │
+│  │    • http-echo × 2           (test HTTP server, port 8080)           │ │
+│  │    • curl-client × 2         (test client with curl)                 │ │
+│  │    • fortio-server           (perf test server, port 8080)           │ │
+│  │    • fortio-client           (perf test load generator)              │ │
+│  │    • fortio-server-cp  ←── pinned to this node (two-node test)      │ │
+│  │                                                                        │ │
+│  │  App pods (grimlock-baseline namespace, NO ambient):                  │ │
+│  │    • http-echo × 2           (baseline, no ztunnel)                  │ │
+│  │    • curl-client × 2         (baseline client)                       │ │
+│  │    • fortio-server           (baseline perf server)                  │ │
+│  │    • fortio-client           (baseline perf client)                  │ │
+│  │                                                                        │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│  ┌─ Worker node (<worker-ip>) ────────────────────────────────────────────┐ │
+│  │                                                                        │ │
+│  │  CNI pods:                                                            │ │
+│  │    • calico-node             (BGP routing on this node)              │ │
+│  │                                                                        │ │
+│  │  Istio pods:                                                          │ │
+│  │    • ztunnel                 (L4 proxy for this node's pods)         │ │
+│  │    • istio-cni-node          (traffic redirect for this node)        │ │
+│  │                                                                        │ │
+│  │  App pods (grimlock, ambient):                                        │ │
+│  │    • fortio-client-wk  ←── pinned to this node (two-node test)      │ │
+│  │                                                                        │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Network layers
+
+There are three independent network layers in this setup:
+
+```
+Layer 3: ztunnel HBONE (encrypted)
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  pod → istio-cni redirect → ztunnel → HBONE mTLS → ztunnel → pod │
+  │  (transparent to applications, provides mTLS + L4 policy)       │
+  └──────────────────────────────────────────────────────────────────┘
+
+Layer 2: Calico pod network (flat routing, no VXLAN)
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  Pod CIDR: 192.168.0.0/16                                       │
+  │  Each node gets a /26 block (e.g., 192.168.247.64/26)          │
+  │  Cross-node: BGP advertises pod routes between nodes            │
+  │  No overlay (encapsulation: None) — direct L3 routing           │
+  └──────────────────────────────────────────────────────────────────┘
+
+Layer 1: Node network (physical/underlay)
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  Node IPs: <control-plane-ip>, <worker-ip>                      │
+  │  Service CIDR: 10.96.0.0/12 (kube-proxy iptables NAT)          │
+  │  Physical network between nodes                                  │
+  └──────────────────────────────────────────────────────────────────┘
+```
+
+### How a cross-node request flows (detailed)
+
+When `fortio-client-wk` (on worker) sends a request to `fortio-server-cp` (on control-plane):
+
+```
+Step 1: Application sends request
+  fortio-client-wk pod (192.168.x.y) → HTTP to fortio-server-cp:8080
+
+Step 2: istio-cni-node redirects to ztunnel (on worker)
+  • iptables TPROXY rule (Calico) or eBPF tc hook (Cilium)
+  • Outbound TCP from ambient pod → ztunnel:15001
+  • This is transparent — the app doesn't know about ztunnel
+
+Step 3: ztunnel (worker) processes outbound
+  • Looks up destination in xDS config (pushed by Istiod)
+  • Finds: destination pod is on a different node
+  • Selects SPIFFE certificate for the source workload identity
+  • Opens HBONE tunnel to remote ztunnel
+
+Step 4: HBONE tunnel over the network
+  • TCP connection: worker:ephemeral → control-plane:15008
+  • TLS 1.3 handshake (mTLS with SPIFFE X.509 certs)
+  • HTTP/2 CONNECT request carries the original TCP stream
+  • Payload is encrypted end-to-end
+
+Step 5: ztunnel (control-plane) processes inbound
+  • Receives on port 15008, terminates TLS
+  • Verifies source SPIFFE identity
+  • Checks L4 AuthorizationPolicy (if any)
+  • Delivers decrypted TCP stream to the destination pod
+
+Step 6: Pod receives the request
+  • fortio-server-cp pod receives the original HTTP request
+  • Responds normally; response takes the reverse path
+
+Network path (Layer 2, Calico flat routing):
+  worker eth0 → BGP-learned route → control-plane eth0
+  No VXLAN encapsulation, no overlay headers
+  Pod IPs are directly routable between nodes via BGP
+```
+
+### Namespace comparison
+
+| Namespace | Ambient | Traffic path | Purpose |
+|-----------|---------|-------------|---------|
+| `grimlock` | Yes (`istio.io/dataplane-mode=ambient`) | pod → ztunnel → HBONE mTLS → ztunnel → pod | Mesh traffic with encryption |
+| `grimlock-baseline` | No (no label) | pod → pod (direct, Calico routing only) | Baseline comparison, no mesh |
+| `istio-system` | N/A | Host network for ztunnel, istiod | Istio control + data plane |
+| `calico-system` | N/A | Host network for calico-node | CNI networking |
+| `kube-system` | N/A | Host network | Kubernetes system components |
+
+### Pod reference
+
+| Pod | Namespace | Node | Purpose |
+|-----|-----------|------|---------|
+| **istiod** | istio-system | control-plane | Istio control plane: pushes config/certs to ztunnel |
+| **ztunnel** | istio-system | every node (DaemonSet) | L4 mTLS proxy, HBONE tunnels |
+| **istio-cni-node** | istio-system | every node (DaemonSet) | Configures iptables/eBPF to redirect ambient pod traffic to ztunnel |
+| **calico-node** | calico-system | every node (DaemonSet) | BGP routing, network policy |
+| **http-echo** | grimlock | any | Test HTTP server (returns "hello-from-pod") |
+| **curl-client** | grimlock | any | Test client (curl available for kubectl exec) |
+| **fortio-server** | grimlock | any | Performance test server (fortio server mode) |
+| **fortio-client** | grimlock | any | Performance test load generator |
+| **fortio-server-cp** | grimlock | control-plane (pinned) | Two-node test: server on control-plane |
+| **fortio-client-wk** | grimlock | worker (pinned) | Two-node test: client on worker |
+
+### How to verify each layer
+
+#### 1. Verify nodes and pod placement
+
+```bash
+# All nodes Ready
+kubectl get nodes -o wide
+
+# All pods across all namespaces
+kubectl get pods -A -o wide
+
+# Pods in ambient namespace with node placement
+kubectl get pods -n grimlock -o wide
+
+# Two-node test pods pinned correctly
+kubectl get pods -n grimlock -l test=two-node -o wide
+```
+
+#### 2. Verify Calico flat routing (no VXLAN)
+
+```bash
+# Confirm no vxlan.calico interface (should return nothing)
+ip link show | grep vxlan
+
+# Confirm Calico is using direct routing (BGP)
+kubectl get ippool default-ipv4-ippool -o yaml | grep encapsulation
+# Should show: encapsulation: None
+
+# Check BGP peer status (Calico uses BGP for flat routing)
+kubectl exec -n calico-system -l k8s-app=calico-node -- calico-node -birdcl show protocols 2>/dev/null || \
+  kubectl exec -n calico-system -l k8s-app=calico-node -- birdcl show protocols 2>/dev/null || true
+
+# Verify pod routes are directly routable between nodes
+# On the control-plane, check route to worker's pod subnet:
+ip route | grep 192.168
+
+# On the worker, check route to control-plane's pod subnet:
+ip route | grep 192.168
+```
+
+#### 3. Verify Istio ambient mode and ztunnel
+
+```bash
+# Istiod running
+kubectl get deployment istiod -n istio-system
+
+# ztunnel DaemonSet running on all nodes
+kubectl get daemonset ztunnel -n istio-system
+
+# istio-cni-node running on all nodes
+kubectl get daemonset istio-cni-node -n istio-system
+
+# grimlock namespace has ambient label
+kubectl get namespace grimlock --show-labels | grep ambient
+
+# grimlock-baseline does NOT have ambient label
+kubectl get namespace grimlock-baseline --show-labels
+```
+
+#### 4. Verify ztunnel is intercepting traffic (iptables rules)
+
+```bash
+# Check iptables TPROXY rules set by istio-cni-node
+# (run on the node where ambient pods are running)
+sudo iptables -t mangle -L PREROUTING -n | grep TPROXY
+sudo iptables -t mangle -L OUTPUT -n | grep TPROXY
+
+# Or check the ztunnel listening ports
+sudo ss -tlnp | grep -E '15001|15008'
+# 15001 = ztunnel outbound listener
+# 15008 = ztunnel HBONE inbound listener
+```
+
+#### 5. Verify SPIFFE certificates (mTLS)
+
+```bash
+# List all certificates ztunnel holds
+./bin/istioctl ztunnel-config certificates
+
+# Should show entries like:
+#   spiffe://cluster.local/ns/grimlock/sa/default    Leaf  Available  true
+#   spiffe://cluster.local/ns/grimlock/sa/default    Root  Available  true
+
+# Verify a specific workload's mTLS status
+./bin/istioctl ztunnel-config workloads | grep grimlock
+# HBONE in the Protocol column = traffic goes through encrypted tunnel
+```
+
+#### 6. Verify HBONE tunnel is active (cross-node)
+
+```bash
+# Send a request and check ztunnel logs for HBONE activity
+kubectl exec -n grimlock deploy/curl-client -- curl -s http://http-echo:80/
+
+# Check ztunnel logs for connection entries
+kubectl logs -n istio-system -l app=ztunnel --tail=20 | grep -E "inbound|outbound|CONNECT"
+
+# Check ztunnel metrics for TCP connection counts
+kubectl exec -n istio-system -l app=ztunnel -- \
+  curl -s localhost:15020/metrics 2>/dev/null | grep istio_tcp_connections_opened_total
+```
+
+#### 7. Verify cross-node connectivity (two-node test)
+
+```bash
+# Deploy and verify two-node test
+make setup-two-node
+make verify-two-node
+
+# Manual connectivity test: client on worker → server on control-plane
+CLIENT=$(kubectl get pods -n grimlock -l app=fortio-client-wk -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n grimlock $CLIENT -c fortio -- \
+  fortio curl http://fortio-server-cp.grimlock.svc.cluster.local:8080/
+
+# Confirm pods are on different nodes
+kubectl get pods -n grimlock -l test=two-node -o wide
+```
+
+#### 8. Verify ambient vs baseline (encryption proof)
+
+```bash
+# Run the mTLS verification test (checks certs, HBONE enrollment, proxy logs, metrics)
+make test-func TEST=mtls-policy
+
+# Compare: request through ambient (encrypted via ztunnel)
+kubectl exec -n grimlock deploy/curl-client -- curl -s http://http-echo:80/
+
+# Compare: request through baseline (direct, no encryption)
+kubectl exec -n grimlock-baseline deploy/curl-client -- curl -s http://http-echo:80/
+
+# Both return the same response, but:
+# - ambient: traffic is encrypted (check ztunnel logs)
+# - baseline: traffic is plaintext (no ztunnel logs)
+kubectl logs -n istio-system -l app=ztunnel --tail=10 --since=5s | grep -c "inbound\|outbound"
+# > 0 after ambient request, 0 after baseline request
+```
+
+#### Quick full verification (all at once)
+
+```bash
+# Run all 17 functionality tests (includes all checks above)
+make test-func TEST=--all
+
+# Or run the full interactive test suite
+make test-func
+```
+
 ## Dependencies
 
 ### All setups
@@ -80,29 +381,65 @@ make test-perf              # performance benchmarks
 
 ### Option B2: Bare metal - multi-node (control-plane + worker)
 
+#### Step 1: On the control-plane node
+
 ```bash
-# 0. On control-plane: install prerequisites
+# Install prerequisites (kubeadm, kubelet, kubectl, containerd)
 sudo ./scripts/install-baremetal-prereqs.sh
 
-# 1. Create cluster with worker node(s) (auto-installs prereqs + joins via SSH)
-WORKER_NODES="10.136.0.75" make create-baremetal
+# Create cluster
+make create-baremetal
 
-# 2. Install Istio + deploy sample apps (includes cross-node test pods)
+# The output will print a join command like:
+#   kubeadm join <control-plane-ip>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+# Copy this command — you'll need it for the worker node.
+```
+
+#### Step 2: On each worker node
+
+```bash
+# Clone or copy the repo to the worker node, then:
+cd ztunnel/ztunnel-testbed
+
+# Install prerequisites (same as control-plane — required on every node)
+sudo ./scripts/install-baremetal-prereqs.sh
+
+# Join the cluster using the command from Step 1:
+sudo ./scripts/baremetal/install-and-join-worker.sh \
+  --join "kubeadm join <control-plane-ip>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>"
+
+# If the worker was previously in another cluster (stale kubelet.conf/pki):
+sudo ./scripts/baremetal/install-and-join-worker.sh --reset \
+  --join "kubeadm join <control-plane-ip>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>"
+```
+
+#### Step 3: Verify on control-plane
+
+```bash
+kubectl get nodes -o wide
+# Should show both nodes Ready
+```
+
+#### Step 4: Install Istio + deploy + test
+
+```bash
+# On the control-plane:
 make setup
 
-# 3. Run tests (includes same-node AND cross-node ztunnel tests)
+# Run tests (includes same-node AND cross-node ztunnel tests)
 make test-func                              # interactive menu
 make test-func TEST=ztunnel-cross-node      # cross-node HBONE tunnel test only
 make test-func TEST=ztunnel-local           # same-node ztunnel test only
 make test-perf                              # performance benchmarks
 ```
 
-Worker nodes are set up automatically via SSH. Requirements:
-- SSH key access from control-plane to worker: `ssh gsadmin@10.136.0.75`
-- Worker has passwordless sudo
-- Set `WORKER_SSH_USER` if SSH user differs from current user
+**Alternative: Automatic via SSH** (from control-plane, no manual steps on worker):
+```bash
+WORKER_NODES="<worker-ip>" make create-baremetal
+```
+Requires SSH key access from control-plane to worker (`ssh <user>@<worker-ip>`) and passwordless sudo on the worker.
 
-For multiple workers: `WORKER_NODES="10.136.0.75,10.136.0.76" make create-baremetal`
+For multiple workers: `WORKER_NODES="<ip1>,<ip2>" make create-baremetal` or repeat Step 2 on each worker.
 
 ### Two-Node Cross-Node Testing
 
@@ -113,7 +450,7 @@ After setting up a multi-node cluster, deploy dedicated cross-node test pods for
 When a pod is in an ambient namespace (`istio.io/dataplane-mode=ambient`), the Istio CNI plugin configures the node's network to redirect all traffic from that pod through the local ztunnel proxy. Here is the full packet path for a cross-node request:
 
 ```
-┌─ Worker node (10.136.0.75) ──────────────────────────────────────────────┐
+┌─ Worker node ────────────────────────────────────────────────────────────┐
 │                                                                           │
 │  1. fortio-client-wk pod sends HTTP request to fortio-server-cp:8080     │
 │     (destination = ClusterIP or Pod IP on the control-plane)             │
@@ -143,7 +480,7 @@ When a pod is in an ambient namespace (`istio.io/dataplane-mode=ambient`), the I
 └───────────────── TCP over network (encrypted) ───────────────────────────┘
                               │
                               ▼
-┌─ Control-plane node (10.200.15.195) ─────────────────────────────────────┐
+┌─ Control-plane node ─────────────────────────────────────────────────────┐
 │                                                                           │
 │  5. ztunnel (control-plane) receives the HBONE connection on :15008     │
 │     • Terminates TLS, verifies client SPIFFE identity                   │
@@ -229,11 +566,11 @@ The two-node benchmark measures:
 - **Latency**: Min/Avg/Max/P99 in microseconds per payload size and HTTP method
 - **ztunnel resource usage**: CPU/memory before and after load
 
-Node IPs default to `CONTROL_PLANE_IP=10.200.15.195` and `WORKER_IP=10.136.0.75`. Override in `config/local.sh`:
+Node IPs are auto-detected from the cluster. Override in `config/local.sh` if needed:
 
 ```bash
-CONTROL_PLANE_IP="10.200.15.195"
-WORKER_IP="10.136.0.75"
+CONTROL_PLANE_IP="<control-plane-ip>"
+WORKER_IP="<worker-ip>"
 ```
 
 | Target | Description |
@@ -278,7 +615,7 @@ make test-perf
 | `make setup` | Verify cluster + install Istio + deploy apps |
 | `make create` | Verify kubectl cluster connectivity |
 | `make create-baremetal` | Create single-node cluster on bare metal (kubeadm) |
-| `make create-baremetal-multi WORKER=10.136.0.75` | Create multi-node cluster |
+| `make create-baremetal-multi WORKER=<worker-ip>` | Create multi-node cluster |
 | `make install-prereqs-baremetal` | Print install command for bare metal deps |
 | `make install` | Install Istio ambient only |
 | `make install-cilium` | Install Cilium CNI (no Helm, Istio compatible) |
@@ -452,7 +789,7 @@ CNI_PROVIDER="cilium"                  # calico (default) | cilium
 CILIUM_VERSION="1.16.0"
 
 # Multi-node (auto-join workers via SSH)
-WORKER_NODES="10.136.0.75"            # comma-separated worker IPs
+WORKER_NODES="<worker-ip>"            # comma-separated worker IPs
 WORKER_SSH_USER="gsadmin"             # SSH user for worker nodes
 ```
 
@@ -738,4 +1075,5 @@ Scripts emit `[HH:MM:SS] [PHASE]` logs with duration for long-running steps:
 
 - [Bare Metal Deployment](docs/BAREMETAL.md)
 - [Functionality Testing Guide](docs/TESTING.md)
+- [Test Reference (each test explained)](docs/tests/README.md)
 - [Directory Structure](docs/STRUCTURE.md)

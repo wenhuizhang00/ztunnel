@@ -27,6 +27,15 @@ install-prereqs-baremetal:
 	@echo "Run on each node (control-plane and workers) with sudo:"
 	@echo "  sudo ./scripts/install-baremetal-prereqs.sh"
 
+# Join a worker node to the cluster (run ON the worker node)
+#   make join-worker JOIN="kubeadm join 10.136.11.5:6443 --token xxx --discovery-token-ca-cert-hash sha256:yyy"
+join-worker:
+	sudo ./scripts/baremetal/install-and-join-worker.sh --join "$(JOIN)"
+
+# Reset and rejoin a worker node
+join-worker-reset:
+	sudo ./scripts/baremetal/install-and-join-worker.sh --reset --join "$(JOIN)"
+
 install:
 	./scripts/install-istio.sh
 

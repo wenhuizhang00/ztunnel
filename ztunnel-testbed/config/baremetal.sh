@@ -15,10 +15,10 @@
 export WORKER_NODES="${WORKER_NODES:-}"
 
 # Node IPs (used for node affinity labels and cross-node tests)
-# Control-plane: runs server pods (sapi ssh --host 10.200.15.195)
-# Worker: runs client pods (sapi ssh --host 10.136.0.75)
-export CONTROL_PLANE_IP="${CONTROL_PLANE_IP:-10.200.15.195}"
-export WORKER_IP="${WORKER_IP:-10.136.0.75}"
+# Control-plane: runs server pods (sapi ssh --host 10.136.0.75)
+# Worker: runs client pods (sapi ssh --host 10.136.11.5)
+export CONTROL_PLANE_IP="${CONTROL_PLANE_IP:-10.136.0.75}"
+export WORKER_IP="${WORKER_IP:-10.136.11.5}"
 
 # SSH user for remote worker operations (must have passwordless sudo on workers)
 export WORKER_SSH_USER="${WORKER_SSH_USER:-${USER}}"

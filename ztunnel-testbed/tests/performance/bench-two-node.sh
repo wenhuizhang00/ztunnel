@@ -2,10 +2,13 @@
 # =============================================================================
 # Two-node cross-node benchmark
 # =============================================================================
-# Runs throughput and latency tests between two specific nodes:
-#   Client: worker node (10.136.0.75)  → ztunnel HBONE → Server: control-plane (10.200.15.195)
+# Runs throughput and latency tests between two nodes in three paths:
+#   1. Cross-node:  client (worker) → ztunnel HBONE → server (control-plane)
+#   2. Reverse:     client (control-plane) → ztunnel HBONE → server (worker)
+#   3. Same-node:   client (worker) → ztunnel (local) → server (worker)
 #
-# Uses fortio-client-wk (on worker) → fortio-server-cp (on control-plane)
+# Comparing paths 1 vs 3 shows the cost of HBONE tunnel (cross-node overhead).
+# Comparing paths 1 vs 2 shows directional asymmetry (if any).
 #
 # Usage:
 #   ./tests/performance/bench-two-node.sh
@@ -21,118 +24,144 @@ source "${PROJECT_ROOT}/scripts/common.sh"
 BENCH_TYPE="two-node"
 source "${PROJECT_ROOT}/tests/performance/bench-common.sh"
 
-CP_IP="${CONTROL_PLANE_IP:-10.200.15.195}"
-WK_IP="${WORKER_IP:-10.136.0.75}"
 NS="${APP_NAMESPACE:-grimlock}"
 
-# Find the two-node pods
-CLIENT_POD=$(kubectl get pods -n "$NS" -l app=fortio-client-wk -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-SERVER_POD=$(kubectl get pods -n "$NS" -l app=fortio-server-cp -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-TARGET_URL="http://fortio-server-cp.${NS}.svc.cluster.local:8080/"
+# Discover pods
+CLI_WK=$(kubectl get pods -n "$NS" -l app=fortio-client-wk --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+CLI_CP=$(kubectl get pods -n "$NS" -l app=fortio-client-cp --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+SVR_CP_URL="http://fortio-server-cp.${NS}.svc.cluster.local:8080/"
+SVR_WK_URL="http://fortio-server-wk.${NS}.svc.cluster.local:8080/"
 
-if [[ -z "$CLIENT_POD" ]] || [[ -z "$SERVER_POD" ]]; then
-  log_error "Two-node test pods not found. Run: ./scripts/setup-two-node-test.sh deploy"
+if [[ -z "$CLI_WK" ]]; then
+  log_error "fortio-client-wk not found. Run: make setup-two-node"
   exit 1
 fi
 
-CLIENT_NODE=$(kubectl get pod "$CLIENT_POD" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
-SERVER_NODE=$(kubectl get pod "$SERVER_POD" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+# Get node info
+CLI_WK_NODE=$(kubectl get pod "$CLI_WK" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null)
+CLI_CP_NODE=$(kubectl get pod "${CLI_CP:-none}" -n "$NS" -o jsonpath='{.spec.nodeName}' 2>/dev/null || echo "N/A")
+SVR_CP_NODE=$(kubectl get pods -n "$NS" -l app=fortio-server-cp -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || echo "N/A")
+SVR_WK_NODE=$(kubectl get pods -n "$NS" -l app=fortio-server-wk -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || echo "N/A")
 
-# Verify fortio
-kubectl exec -n "$NS" "$CLIENT_POD" -c fortio -- fortio version &>/dev/null || { log_error "fortio not working in $CLIENT_POD"; exit 1; }
-
-# Verify connectivity
-kubectl exec -n "$NS" "$CLIENT_POD" -c fortio -- fortio curl "$TARGET_URL" &>/dev/null || { log_error "Cannot reach $TARGET_URL"; exit 1; }
+# Verify
+kubectl exec -n "$NS" "$CLI_WK" -c fortio -- fortio version &>/dev/null || { log_error "fortio not working"; exit 1; }
+kubectl exec -n "$NS" "$CLI_WK" -c fortio -- fortio curl "$SVR_CP_URL" &>/dev/null || { log_error "Cannot reach $SVR_CP_URL"; exit 1; }
 
 log_ok "Two-node benchmark ready"
-log_info "  Client: $CLIENT_POD on $CLIENT_NODE ($WK_IP)"
-log_info "  Server: $SERVER_POD on $SERVER_NODE ($CP_IP)"
-log_info "  Path: worker → ztunnel HBONE → control-plane"
+log_info "  Path 1 (cross-node): client on $CLI_WK_NODE → server on $SVR_CP_NODE"
+log_info "  Path 2 (reverse):    client on $CLI_CP_NODE → server on $SVR_WK_NODE"
+log_info "  Path 3 (same-node):  client on $CLI_WK_NODE → server on $SVR_WK_NODE"
 
 REPORT_FILE="${OUTPUT_DIR}/two-node-${TIMESTAMP}.txt"
 
-{
-  echo "========================================================================"
-  echo "  TWO-NODE CROSS-NODE BENCHMARK"
-  echo "  Generated: $(date)"
-  echo "  Client: $CLIENT_NODE ($WK_IP) → Server: $SERVER_NODE ($CP_IP)"
-  echo "  Path: fortio-client-wk → ztunnel HBONE tunnel → fortio-server-cp"
-  echo "  Duration: $DURATION  Concurrency: $CONCURRENCY"
-  echo "  Packet sizes: $PACKET_SIZES"
-  echo "========================================================================"
-
-  collect_ztunnel_stats "before two-node benchmark"
-
-  # --- Throughput: payload sizes ---
+run_path_throughput() {
+  local label="$1" ns="$2" client="$3" url="$4"
   echo ""
-  echo "=================================================================="
-  echo "  THROUGHPUT: Payload Size Sweep (cross-node)"
-  echo "  Client ($WK_IP) → ztunnel HBONE → Server ($CP_IP)"
-  echo "  Measures max QPS between the two nodes."
-  echo "  Concurrency: $CONCURRENCY, Duration: $DURATION"
-  echo "=================================================================="
-  echo ""
+  echo "  --- $label ---"
   BENCH_TYPE="throughput"
   print_header
 
   IFS=',' read -ra SIZES <<< "$PACKET_SIZES"
   for size in "${SIZES[@]}"; do
-    log_step "TPUT" "[cross-node ${size}B] c=$CONCURRENCY..." >&2
-    run_and_report "${size}B POST" "$NS" "$CLIENT_POD" "$TARGET_URL" "$CONCURRENCY" \
+    log_step "TPUT" "[$label ${size}B] c=$CONCURRENCY..." >&2
+    run_and_report "${size}B POST" "$ns" "$client" "$url" "$CONCURRENCY" \
+      -payload-size "$size" -content-type "application/octet-stream"
+  done
+}
+
+run_path_latency() {
+  local label="$1" ns="$2" client="$3" url="$4"
+  echo ""
+  echo "  --- $label ---"
+  BENCH_TYPE="latency"
+  print_header
+
+  IFS=',' read -ra SIZES <<< "$PACKET_SIZES"
+  for size in "${SIZES[@]}"; do
+    log_step "LAT" "[$label ${size}B] c=1..." >&2
+    run_and_report "${size}B POST" "$ns" "$client" "$url" 1 \
       -payload-size "$size" -content-type "application/octet-stream"
   done
 
-  # --- Throughput: concurrency sweep ---
+  log_step "LAT" "[$label] GET c=1..." >&2
+  run_and_report "GET c=1" "$ns" "$client" "$url" 1
+
+  log_step "LAT" "[$label] GET no-ka c=1..." >&2
+  run_and_report "GET no-ka c=1" "$ns" "$client" "$url" 1 -keepalive=false
+}
+
+{
+  echo "========================================================================"
+  echo "  TWO-NODE CROSS-NODE BENCHMARK"
+  echo "  Generated: $(date)"
+  echo "  Cluster: $(kubectl config current-context 2>/dev/null)"
+  echo "  Path 1: $CLI_WK_NODE → $SVR_CP_NODE (cross-node, HBONE tunnel)"
+  echo "  Path 2: $CLI_CP_NODE → $SVR_WK_NODE (reverse, HBONE tunnel)"
+  echo "  Path 3: $CLI_WK_NODE → $SVR_WK_NODE (same-node, local ztunnel)"
+  echo "  Duration: $DURATION  Concurrency: $CONCURRENCY"
+  echo "  Packet sizes: $PACKET_SIZES"
+  echo "========================================================================"
+
+  collect_ztunnel_stats "before benchmark"
+
+  # === THROUGHPUT ===
+  echo ""
+  echo "=================================================================="
+  echo "  THROUGHPUT: Cross-node vs Same-node comparison"
+  echo "  Measures max QPS. Compare cross-node overhead to same-node."
+  echo "  Concurrency: $CONCURRENCY, Duration: $DURATION"
+  echo "=================================================================="
+
+  run_path_throughput "cross-node (worker→CP)" "$NS" "$CLI_WK" "$SVR_CP_URL"
+
+  if [[ -n "$CLI_CP" ]]; then
+    run_path_throughput "reverse (CP→worker)" "$NS" "$CLI_CP" "$SVR_WK_URL"
+  fi
+
+  run_path_throughput "same-node (worker→worker)" "$NS" "$CLI_WK" "$SVR_WK_URL"
+
+  # === CONCURRENCY SWEEP ===
   if [[ "$SKIP_SWEEP" != "1" ]]; then
     echo ""
     echo "=================================================================="
     echo "  THROUGHPUT: Concurrency Sweep (cross-node)"
-    echo "  Finds peak throughput between the two nodes."
+    echo "  Finds peak QPS between the two nodes."
     echo "=================================================================="
     echo ""
+    BENCH_TYPE="throughput"
     print_header
 
     for conc in 1 4 8 16 32 64 128; do
       log_step "TPUT" "[cross-node] c=$conc..." >&2
-      run_and_report "c=$conc" "$NS" "$CLIENT_POD" "$TARGET_URL" "$conc"
+      run_and_report "c=$conc" "$NS" "$CLI_WK" "$SVR_CP_URL" "$conc"
     done
   fi
 
-  # --- Latency ---
+  # === LATENCY ===
   echo ""
   echo "=================================================================="
-  echo "  LATENCY: Cross-node (client $WK_IP → server $CP_IP)"
-  echo "  Measures round-trip latency through ztunnel HBONE tunnel."
-  echo "  Min/Avg/Max/P99 in microseconds."
-  echo "  Concurrency: 1 (for accurate single-request latency)"
+  echo "  LATENCY: Cross-node vs Same-node comparison"
+  echo "  Min/Avg/Max/P99 in microseconds. c=1 for accurate measurement."
+  echo "  Compare cross-node HBONE overhead to same-node local path."
   echo "=================================================================="
+
+  run_path_latency "cross-node (worker→CP)" "$NS" "$CLI_WK" "$SVR_CP_URL"
+
+  if [[ -n "$CLI_CP" ]]; then
+    run_path_latency "reverse (CP→worker)" "$NS" "$CLI_CP" "$SVR_WK_URL"
+  fi
+
+  run_path_latency "same-node (worker→worker)" "$NS" "$CLI_WK" "$SVR_WK_URL"
+
+  collect_ztunnel_stats "after benchmark"
+
   echo ""
-  BENCH_TYPE="latency"
-  print_header
-
-  for size in "${SIZES[@]}"; do
-    log_step "LAT" "[cross-node ${size}B] c=1..." >&2
-    run_and_report "${size}B POST" "$NS" "$CLIENT_POD" "$TARGET_URL" 1 \
-      -payload-size "$size" -content-type "application/octet-stream"
-  done
-
-  log_step "LAT" "[cross-node] GET c=1..." >&2
-  run_and_report "GET c=1" "$NS" "$CLIENT_POD" "$TARGET_URL" 1
-
-  log_step "LAT" "[cross-node] GET no-keepalive c=1..." >&2
-  run_and_report "GET no-ka c=1" "$NS" "$CLIENT_POD" "$TARGET_URL" 1 -keepalive=false
-
-  log_step "LAT" "[cross-node] GET c=4..." >&2
-  run_and_report "GET c=4" "$NS" "$CLIENT_POD" "$TARGET_URL" 4
-
-  log_step "LAT" "[cross-node] GET c=16..." >&2
-  run_and_report "GET c=16" "$NS" "$CLIENT_POD" "$TARGET_URL" 16
-
-  log_step "LAT" "[cross-node] GET c=64..." >&2
-  run_and_report "GET c=64" "$NS" "$CLIENT_POD" "$TARGET_URL" 64
-
-  collect_ztunnel_stats "after two-node benchmark"
-
+  echo "=================================================================="
+  echo "  Notes:"
+  echo "  • cross-node vs same-node difference = HBONE tunnel overhead"
+  echo "  • cross-node vs reverse = directional asymmetry (should be similar)"
+  echo "  • all paths go through ztunnel (ambient namespace, mTLS encrypted)"
+  echo "=================================================================="
   echo ""
   echo "Benchmark complete."
 
