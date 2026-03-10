@@ -360,12 +360,13 @@ fi
 echo ""
 log_ok "Cluster ready ($NODE_MODE-node). kubectl is configured for user '$USER' and root."
 
-# Source bashrc so KUBECONFIG and NO_PROXY take effect in this shell immediately
-source "$HOME/.bashrc" 2>/dev/null || true
+# Source bashrc so KUBECONFIG and NO_PROXY take effect in this shell immediately.
+# Disable set -e first: bashrc commands may return non-zero which would kill this script.
+set +e
+source "$HOME/.bashrc" 2>/dev/null
+set -e
 
 echo ""
 echo "  # All new shells and 'sudo kubectl' work automatically."
 echo ""
 log_info "From workstation: scp $USER@<control-plane>:~/.kube/config ~/.kube/config"
-
-exit 0
