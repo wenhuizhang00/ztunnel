@@ -1,6 +1,17 @@
 # =============================================================================
 # Calico custom resources - matches POD_NETWORK_CIDR from baremetal.sh
 # =============================================================================
+# Required for Istio ambient: bpfConnectTimeLoadBalancing must be Disabled.
+# See: https://github.com/istio/istio/issues/52765
+# Without this, ztunnel readiness probes fail and istioctl install times out.
+# =============================================================================
+apiVersion: crd.projectcalico.org/v1
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  bpfConnectTimeLoadBalancing: Disabled
+---
 apiVersion: operator.tigera.io/v1
 kind: Installation
 metadata:

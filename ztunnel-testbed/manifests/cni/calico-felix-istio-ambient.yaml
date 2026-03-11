@@ -1,0 +1,19 @@
+# =============================================================================
+# Calico FelixConfiguration for Istio ambient compatibility
+# =============================================================================
+# Apply this if istioctl install warned:
+#   "bpfConnectTimeLoadBalancing=TCP must be set to Disabled"
+# and ztunnel pods fail readiness (0/2 ready) or istioctl times out.
+#
+# Usage (on existing cluster):
+#   kubectl apply -f manifests/cni/calico-felix-istio-ambient.yaml
+#   kubectl rollout restart daemonset/calico-node -n calico-system
+#   # Wait for calico-node to roll out, then ztunnel may become ready.
+#   kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s
+# =============================================================================
+apiVersion: crd.projectcalico.org/v1
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  bpfConnectTimeLoadBalancing: Disabled

@@ -162,3 +162,15 @@ make install    # Install Istio ambient
 make deploy     # Deploy sample apps (grimlock, grimlock-baseline)
 make test-func
 ```
+
+## Calico + Istio ambient (bpfConnectTimeLoadBalancing)
+
+If `make install` times out on ztunnel with the warning `bpfConnectTimeLoadBalancing=TCP must be Disabled`, apply the FelixConfiguration before or after install:
+
+```bash
+kubectl apply -f manifests/cni/calico-felix-istio-ambient.yaml
+kubectl rollout restart daemonset/calico-node -n calico-system
+kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s
+```
+
+New clusters created with this testbed include this config in `calico-custom-resources.yaml`.

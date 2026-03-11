@@ -1050,6 +1050,34 @@ sudo systemctl restart containerd
 kubectl get nodes
 ```
 
+### Ztunnel timeout / "resources not ready after 5m0s" (Calico)
+
+If `make install` fails with:
+
+```
+❗ detected Calico CNI with 'bpfConnectTimeLoadBalancing=TCP'; this must be set to 'bpfConnectTimeLoadBalancing=Disabled'
+✘ Ztunnel encountered an error: failed to wait for resource: resources not ready after 5m0s
+```
+
+or ztunnel shows `0/2 ready`, Calico's eBPF connect-time load balancing interferes with Istio ambient. Fix:
+
+```bash
+# 1. Apply FelixConfiguration (disables connect-time load balancing)
+kubectl apply -f manifests/cni/calico-felix-istio-ambient.yaml
+
+# 2. Restart Calico so it picks up the new config
+kubectl rollout restart daemonset/calico-node -n calico-system
+
+# 3. Wait for Calico, then ztunnel should become ready
+kubectl rollout status daemonset/calico-node -n calico-system --timeout=120s
+kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s
+
+# 4. Deploy sample apps
+make deploy
+```
+
+For **new clusters**, `calico-custom-resources.yaml` already includes this FelixConfiguration.
+
 ### Performance test shows "FAILED" or no data
 
 1. Check fortio pod: `kubectl get pods -n grimlock -l app=fortio`
