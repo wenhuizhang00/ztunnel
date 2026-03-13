@@ -240,7 +240,7 @@ log_ok "kubectl ready"
 
 # Install CNI
 if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
-  log_step "CILIUM" "Installing Cilium CNI (Istio ambient compatible, no Helm)..."
+  log_step "CILIUM" "Installing Cilium CNI (Istio ambient compatible, flat network)..."
   source "${PROJECT_ROOT}/config/cilium.sh" 2>/dev/null || true
   CILIUM_CLI=$(command -v cilium 2>/dev/null || echo "${PROJECT_ROOT}/bin/cilium")
   if [[ ! -x "$CILIUM_CLI" ]]; then
@@ -255,16 +255,21 @@ if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
     CILIUM_CLI="${PROJECT_ROOT}/bin/cilium"
     log_step_ok "CILIUM" "Cilium CLI downloaded" "$(( $(date +%s) - cilium_start ))s"
   fi
-  log_step "CILIUM" "Running cilium install (pulling images + --wait)..."
+  log_step "CILIUM" "Running cilium install (flat network: tunnel=disabled, ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR:-$POD_NETWORK_CIDR})..."
   cilium_install_start=$(date +%s)
-  "$CILIUM_CLI" install --version "v${CILIUM_VERSION:-1.16.0}" \
-    --set cni.exclusive=false \
-    --set socketLB.hostNamespaceOnly=true \
-    --set kubeProxyReplacement=false \
-    --wait
+  CILIUM_SET_ARGS=(
+    --version "v${CILIUM_VERSION:-1.16.0}"
+    --set cni.exclusive=false
+    --set socketLB.hostNamespaceOnly=true
+    --set kubeProxyReplacement=false
+  )
+  if [[ "${CILIUM_FLAT_NETWORK:-true}" == "true" ]] && [[ -n "${CILIUM_NATIVE_ROUTING_CIDR:-}" ]]; then
+    CILIUM_SET_ARGS+=(--set "tunnel=disabled" --set "ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR}")
+  fi
+  "$CILIUM_CLI" install "${CILIUM_SET_ARGS[@]}" --wait
   log_step "CILIUM" "Waiting for cilium DaemonSet rollout (timeout 300s)..."
   kubectl rollout status daemonset/cilium -n kube-system --timeout=300s
-  log_step_ok "CILIUM" "Cilium ready" "$(( $(date +%s) - cilium_install_start ))s"
+  log_step_ok "CILIUM" "Cilium ready (flat network)" "$(( $(date +%s) - cilium_install_start ))s"
 else
   log_step "CALICO" "Installing Calico CNI (${CALICO_VERSION}) - fetching manifests..."
   calico_start=$(date +%s)

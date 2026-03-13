@@ -35,6 +35,8 @@
 # Bare metal (when using make create-baremetal)
 # CNI_PROVIDER="calico"       # calico (default) | cilium
 # CILIUM_VERSION="1.16.0"    # When CNI_PROVIDER=cilium
+# CILIUM_FLAT_NETWORK="true" # Cilium: flat network (tunnel=disabled, direct routing). Default: true
+# CILIUM_NATIVE_ROUTING_CIDR="192.168.0.0/16"  # Pod CIDR for direct routing. Default: POD_NETWORK_CIDR or 192.168.0.0/16
 # K8S_VERSION="1.30.0"
 # POD_NETWORK_CIDR="192.168.0.0/16"
 # CALICO_VERSION="v3.28.0"

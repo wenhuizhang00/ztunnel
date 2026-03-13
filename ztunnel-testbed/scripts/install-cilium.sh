@@ -14,9 +14,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 ensure_kubectl_context
 
+# Load POD_NETWORK_CIDR for flat network (used by config/cilium.sh)
+source "${PROJECT_ROOT}/config/baremetal.sh" 2>/dev/null || true
 source "${PROJECT_ROOT}/config/cilium.sh" 2>/dev/null || true
 
-log_info "Installing Cilium (${CILIUM_VERSION}) - Istio ambient compatible (no Helm)"
+log_info "Installing Cilium (${CILIUM_VERSION}) - Istio ambient compatible (flat network, no Helm)"
 
 # CHOKE: Cilium CLI download (network)
 CILIUM_CLI="${PROJECT_ROOT}/bin/cilium"
@@ -49,12 +51,17 @@ fi
 # CHOKE: Cilium install (pulls images, --wait)
 log_step "CILIUM" "Installing Cilium (pulling images + --wait - may take 2-5 min)..."
 cilium_install_start=$(date +%s)
-"${CILIUM_CLI}" install \
-  --version "v${CILIUM_VERSION}" \
-  --set cni.exclusive=false \
-  --set socketLB.hostNamespaceOnly=true \
-  --set kubeProxyReplacement=false \
-  --wait
+CILIUM_SET_ARGS=(
+  --version "v${CILIUM_VERSION}"
+  --set cni.exclusive=false
+  --set socketLB.hostNamespaceOnly=true
+  --set kubeProxyReplacement=false
+)
+if [[ "${CILIUM_FLAT_NETWORK:-true}" == "true" ]] && [[ -n "${CILIUM_NATIVE_ROUTING_CIDR:-}" ]]; then
+  CILIUM_SET_ARGS+=(--set "tunnel=disabled" --set "ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR}")
+  log_info "Flat network: tunnel=disabled, ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR}"
+fi
+"${CILIUM_CLI}" install "${CILIUM_SET_ARGS[@]}" --wait
 
 log_step_ok "CILIUM" "Cilium installed" "$(( $(date +%s) - cilium_install_start ))s"
-log_info "Verify: kubectl get configmaps -n kube-system cilium-config -oyaml | grep -E 'cni-exclusive|bpf-lb-sock'"
+log_info "Verify: kubectl get configmaps -n kube-system cilium-config -oyaml | grep -E 'tunnel|cni-exclusive|bpf-lb-sock'"

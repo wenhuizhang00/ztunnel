@@ -690,6 +690,8 @@ For bare metal with Cilium instead of Calico:
 CNI_PROVIDER=cilium make create-baremetal
 ```
 
+Cilium uses **flat network** (direct routing, no VXLAN) by default: `tunnel=disabled`, `ipv4NativeRoutingCIDR` from `POD_NETWORK_CIDR`. Override in `config/local.sh`: `CILIUM_FLAT_NETWORK=false` for tunnel mode, or `CILIUM_NATIVE_ROUTING_CIDR="10.0.0.0/8"` for a custom range.
+
 Remove existing CNI before installing Cilium.
 
 ## Directory Structure
