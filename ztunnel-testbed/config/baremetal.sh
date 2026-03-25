@@ -26,20 +26,13 @@ export WORKER_SSH_USER="${WORKER_SSH_USER:-${USER}}"
 # Control-plane node IP or hostname (for kubeadm join --control-plane)
 export CONTROL_PLANE_ENDPOINT="${CONTROL_PLANE_ENDPOINT:-}"
 
-# Pod network CIDR (must not overlap with node networks)
-# 192.168.0.0/16 matches Calico default
+# Pod network CIDR (must not overlap with node networks; used by kubeadm + Cilium flat routing)
 export POD_NETWORK_CIDR="${POD_NETWORK_CIDR:-192.168.0.0/16}"
 
 # Kubernetes version for kubeadm (e.g. 1.30.0)
 export K8S_VERSION="${K8S_VERSION:-1.30.0}"
 
-# CNI provider: calico | cilium
-export CNI_PROVIDER="${CNI_PROVIDER:-calico}"
-
-# Calico version (for CNI install URL)
-export CALICO_VERSION="${CALICO_VERSION:-v3.28.0}"
-
-# Cilium version (when CNI_PROVIDER=cilium, see also config/cilium.sh)
+# Cilium version (see config/cilium.sh for flat-network options)
 export CILIUM_VERSION="${CILIUM_VERSION:-1.16.0}"
 
 # CRI socket (containerd default)

@@ -43,9 +43,9 @@ fi
 
 check_cmd kubectl
 
-# Warn if another CNI exists
-if kubectl get ds -n kube-system -l k8s-app=calico-node &>/dev/null || kubectl get ds -n kube-system weave-net &>/dev/null; then
-  log_warn "Existing CNI detected. Remove it first (e.g. kubectl delete -f calico.yaml) before installing Cilium."
+# Warn if another CNI exists (not Cilium)
+if kubectl get ds -n kube-system weave-net &>/dev/null || kubectl get ds -n kube-system flannel &>/dev/null; then
+  log_warn "Existing CNI detected. Remove it before installing Cilium."
 fi
 
 # CHOKE: Cilium install (pulls images, --wait)

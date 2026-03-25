@@ -21,8 +21,8 @@ ztunnel-testbed/
 | `versions.sh` | Istio, Gateway API version variables |
 | `cluster.sh` | KUBE_CONTEXT, APP_NAMESPACE, APP_NAMESPACE_BASELINE |
 | `images.sh` | HTTP_ECHO_IMAGE, CURL_IMAGE, FORTIO_IMAGE (USE_LOCAL_IMAGES, IMAGE_REGISTRY) |
-| `baremetal.sh` | Bare metal: CNI_PROVIDER, K8S_VERSION, POD_NETWORK_CIDR, CALICO_VERSION |
-| `cilium.sh` | Cilium version (when CNI_PROVIDER=cilium) |
+| `baremetal.sh` | Bare metal: K8S_VERSION, POD_NETWORK_CIDR, CILIUM_VERSION, WORKER_NODES |
+| `cilium.sh` | Cilium flat-network options (CILIUM_FLAT_NETWORK, CILIUM_NATIVE_ROUTING_CIDR) |
 | `kubeadm-config.yaml` | kubeadm ClusterConfiguration |
 | `kubeadm-config.yaml.template` | Template with env var substitution |
 | `local.sh.example` | Template for local overrides |
@@ -36,7 +36,7 @@ ztunnel-testbed/
 | `sample-apps/simple-http-server.yaml.template` | Ambient mesh apps (envsubst: HTTP_ECHO_IMAGE, CURL_IMAGE, APP_NAMESPACE) |
 | `sample-apps-baseline/http-echo-baseline.yaml.template` | Non-ambient apps (envsubst) |
 | `performance/fortio-client.yaml.template` | fortio load generator (envsubst) |
-| `cni/calico-custom-resources.yaml` | Calico Installation CR (pod CIDR) |
+| `cni/README.md` | Notes: Cilium installed by CLI, no static CNI YAML |
 
 ## scripts/
 
@@ -44,7 +44,7 @@ ztunnel-testbed/
 |--------|-------------|
 | `common.sh` | Shared helpers (log, check_cmd, ensure_kubectl_context) |
 | `create-cluster.sh` | Verify kubectl cluster connectivity |
-| `create-cluster-baremetal.sh` | Create K8s cluster on bare metal (kubeadm, Calico or Cilium) |
+| `create-cluster-baremetal.sh` | Create K8s cluster on bare metal (kubeadm + Cilium flat network) |
 | `install-baremetal-prereqs.sh` | Install kubeadm, kubelet, kubectl, containerd (Ubuntu/Debian) |
 | `build-images.sh` | Build local http-echo, curl-client, fortio images |
 | `load-images.sh` | Load local images into kind/minikube |
@@ -81,8 +81,9 @@ ztunnel-testbed/
 | `APP_NAMESPACE` | cluster.sh | Sample app namespace (default: grimlock) |
 | `APP_NAMESPACE_BASELINE` | cluster.sh | Baseline namespace (default: grimlock-baseline) |
 | `ISTIO_PLATFORM` | local.sh | gke, eks, k3d, minikube |
-| `CNI_PROVIDER` | baremetal.sh | calico \| cilium |
-| `CILIUM_VERSION` | cilium.sh | Cilium version |
+| `CILIUM_VERSION` | baremetal.sh / cilium.sh | Cilium version |
+| `CILIUM_FLAT_NETWORK` | cilium.sh | true = tunnel disabled, direct routing |
+| `CILIUM_NATIVE_ROUTING_CIDR` | cilium.sh | Pod CIDR for flat routing (default: POD_NETWORK_CIDR) |
 | `K8S_VERSION` | baremetal.sh | Kubernetes version for kubeadm |
 | `POD_NETWORK_CIDR` | baremetal.sh | Pod network CIDR |
 | `RECREATE` | - | Force recreate (bare metal) |

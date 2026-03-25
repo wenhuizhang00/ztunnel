@@ -34,9 +34,4 @@ PASS: ztunnel fully rolled out (3/3 ready), image: ...
 
 Check `kubectl get ds ztunnel -n istio-system`, check pod logs.
 
-If ztunnel shows `0/N ready` and you saw the Calico warning during install:
-```bash
-kubectl apply -f manifests/cni/calico-felix-istio-ambient.yaml
-kubectl rollout restart daemonset/calico-node -n calico-system
-```
-See README "Ztunnel timeout / Calico" section.
+If ztunnel shows `0/N ready`, check istiod, image pulls, and Cilium: `kubectl rollout status ds/cilium -n kube-system`. See README troubleshooting for ztunnel install timeouts.

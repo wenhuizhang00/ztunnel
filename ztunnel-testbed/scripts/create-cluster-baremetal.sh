@@ -2,7 +2,7 @@
 # =============================================================================
 # ztunnel-testbed - Create Kubernetes cluster on bare metal (kubeadm)
 # =============================================================================
-# Run on control-plane node. Uses kubeadm + Calico. Not k3s.
+# Run on control-plane node. Uses kubeadm + Cilium (flat network). Not k3s.
 # Prereqs on all nodes: kubeadm, kubelet, kubectl, containerd (or docker)
 # =============================================================================
 
@@ -238,61 +238,39 @@ if [[ -n "$ctx" ]] && [[ "$ctx" != "grimlock-cell" ]]; then
 fi
 log_ok "kubectl ready"
 
-# Install CNI
-if [[ "${CNI_PROVIDER:-calico}" == "cilium" ]]; then
-  log_step "CILIUM" "Installing Cilium CNI (Istio ambient compatible, flat network)..."
-  source "${PROJECT_ROOT}/config/cilium.sh" 2>/dev/null || true
-  CILIUM_CLI=$(command -v cilium 2>/dev/null || echo "${PROJECT_ROOT}/bin/cilium")
-  if [[ ! -x "$CILIUM_CLI" ]]; then
-    log_step "CILIUM" "Downloading Cilium CLI (network - may be slow behind proxy)..."
-    CILIUM_CLI_VERSION=$(curl -sL https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt 2>/dev/null || echo "v0.18.7")
-    CLI_ARCH=amd64; [[ "$(uname -m)" == "aarch64" ]] || [[ "$(uname -m)" == "arm64" ]] && CLI_ARCH=arm64
-    mkdir -p "${PROJECT_ROOT}/bin" "${PROJECT_ROOT}/.cache"
-    cilium_start=$(date +%s)
-    curl -sL --fail -o "${PROJECT_ROOT}/.cache/cilium-cli.tar.gz" "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz" || { log_error "Failed to download Cilium CLI"; exit 1; }
-    tar xzf "${PROJECT_ROOT}/.cache/cilium-cli.tar.gz" -C "${PROJECT_ROOT}/bin"
-    chmod +x "${PROJECT_ROOT}/bin/cilium"
-    CILIUM_CLI="${PROJECT_ROOT}/bin/cilium"
-    log_step_ok "CILIUM" "Cilium CLI downloaded" "$(( $(date +%s) - cilium_start ))s"
-  fi
-  log_step "CILIUM" "Running cilium install (flat network: tunnel=disabled, ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR:-$POD_NETWORK_CIDR})..."
-  cilium_install_start=$(date +%s)
-  CILIUM_SET_ARGS=(
-    --version "v${CILIUM_VERSION:-1.16.0}"
-    --set cni.exclusive=false
-    --set socketLB.hostNamespaceOnly=true
-    --set kubeProxyReplacement=false
-  )
-  if [[ "${CILIUM_FLAT_NETWORK:-true}" == "true" ]] && [[ -n "${CILIUM_NATIVE_ROUTING_CIDR:-}" ]]; then
-    CILIUM_SET_ARGS+=(--set "tunnel=disabled" --set "ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR}")
-  fi
-  "$CILIUM_CLI" install "${CILIUM_SET_ARGS[@]}" --wait
-  log_step "CILIUM" "Waiting for cilium DaemonSet rollout (timeout 300s)..."
-  kubectl rollout status daemonset/cilium -n kube-system --timeout=300s
-  log_step_ok "CILIUM" "Cilium ready (flat network)" "$(( $(date +%s) - cilium_install_start ))s"
-else
-  log_step "CALICO" "Installing Calico CNI (${CALICO_VERSION}) - fetching manifests..."
-  calico_start=$(date +%s)
-  # Use --server-side to avoid "metadata.annotations: Too long" (CRD annotation 256KB limit)
-  kubectl apply --server-side -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/operator-crds.yaml"
-  kubectl apply --server-side -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
-  kubectl apply -f "${PROJECT_ROOT}/manifests/cni/calico-custom-resources.yaml"
-  log_step "CALICO" "Waiting for Calico pods (sleep 15s + wait up to 180s)..."
-  sleep 15
-  if kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=180s 2>/dev/null; then
-    :
-  elif kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=calico-node -n calico-system --timeout=180s 2>/dev/null; then
-    :
-  elif kubectl wait --for=condition=available deployment -n tigera-operator tigera-operator --timeout=180s 2>/dev/null; then
-    :
-  else
-    log_error "Calico did not become ready. Check: kubectl get pods -A | grep -E 'calico|tigera'"
-    exit 1
-  fi
-  log_step_ok "CALICO" "Calico ready" "$(( $(date +%s) - calico_start ))s"
+# Install CNI: Cilium only (flat network: tunnel=disabled, direct routing for pod CIDR)
+log_step "CILIUM" "Installing Cilium CNI (Istio ambient compatible, flat network)..."
+source "${PROJECT_ROOT}/config/cilium.sh" 2>/dev/null || true
+CILIUM_CLI=$(command -v cilium 2>/dev/null || echo "${PROJECT_ROOT}/bin/cilium")
+if [[ ! -x "$CILIUM_CLI" ]]; then
+  log_step "CILIUM" "Downloading Cilium CLI (network - may be slow behind proxy)..."
+  CILIUM_CLI_VERSION=$(curl -sL https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt 2>/dev/null || echo "v0.18.7")
+  CLI_ARCH=amd64; [[ "$(uname -m)" == "aarch64" ]] || [[ "$(uname -m)" == "arm64" ]] && CLI_ARCH=arm64
+  mkdir -p "${PROJECT_ROOT}/bin" "${PROJECT_ROOT}/.cache"
+  cilium_start=$(date +%s)
+  curl -sL --fail -o "${PROJECT_ROOT}/.cache/cilium-cli.tar.gz" "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz" || { log_error "Failed to download Cilium CLI"; exit 1; }
+  tar xzf "${PROJECT_ROOT}/.cache/cilium-cli.tar.gz" -C "${PROJECT_ROOT}/bin"
+  chmod +x "${PROJECT_ROOT}/bin/cilium"
+  CILIUM_CLI="${PROJECT_ROOT}/bin/cilium"
+  log_step_ok "CILIUM" "Cilium CLI downloaded" "$(( $(date +%s) - cilium_start ))s"
 fi
+log_step "CILIUM" "Running cilium install (flat network: tunnel=disabled, ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR:-$POD_NETWORK_CIDR})..."
+cilium_install_start=$(date +%s)
+CILIUM_SET_ARGS=(
+  --version "v${CILIUM_VERSION:-1.16.0}"
+  --set cni.exclusive=false
+  --set socketLB.hostNamespaceOnly=true
+  --set kubeProxyReplacement=false
+)
+if [[ "${CILIUM_FLAT_NETWORK:-true}" == "true" ]] && [[ -n "${CILIUM_NATIVE_ROUTING_CIDR:-}" ]]; then
+  CILIUM_SET_ARGS+=(--set "tunnel=disabled" --set "ipv4NativeRoutingCIDR=${CILIUM_NATIVE_ROUTING_CIDR}")
+fi
+"$CILIUM_CLI" install "${CILIUM_SET_ARGS[@]}" --wait
+log_step "CILIUM" "Waiting for cilium DaemonSet rollout (timeout 300s)..."
+kubectl rollout status daemonset/cilium -n kube-system --timeout=300s
+log_step_ok "CILIUM" "Cilium ready (flat network)" "$(( $(date +%s) - cilium_install_start ))s"
 
-# Restart containerd so it picks up the new CNI config written by calico-node.
+# Restart containerd so it picks up the new CNI config.
 # Without this, containerd's inotify watch may miss the config if /etc/cni/net.d
 # was recreated after containerd started.
 sudo systemctl restart containerd

@@ -86,14 +86,16 @@ Cross-node pod-to-pod communication through the ztunnel HBONE mTLS tunnel. Tests
 | ⑧ HBONE tunnel | 10.136.11.5 | 10.136.0.65:15008 | Reverse direction |
 | ⑨ Deliver to pod | ztunnel | 192.168.93.201:8080 | http-echo-node1 on CP |
 
-### Calico BGP routes (flat routing, no VXLAN)
+### Pod CIDR routes (Cilium flat network, no overlay)
+
+Example (your IPs may differ):
 
 ```
-On control-plane (10.136.0.65):
-  192.168.42.128/26 via 10.136.11.5 dev eno1 proto bird    ← worker's pod subnet
+On control-plane:
+  192.168.42.128/26 via 10.136.11.5 dev eno1    ← route to worker's pod subnet
 
-On worker (10.136.11.5):
-  192.168.93.192/26 via 10.136.0.65 dev eno1 proto bird    ← CP's pod subnet
+On worker:
+  192.168.93.192/26 via 10.136.0.65 dev eno1   ← route to control-plane pod subnet
 ```
 
 ## Why this matters
@@ -102,7 +104,7 @@ This is the core ztunnel data path for ambient mode across nodes. If same-node w
 - HBONE tunnel establishment between ztunnel instances
 - Network connectivity between nodes (firewall, MTU)
 - Certificate exchange between ztunnel instances
-- Calico/CNI cross-node pod routing (BGP routes)
+- Cilium/CNI cross-node pod routing (direct routes to remote pod CIDRs)
 
 ## What it checks
 
@@ -137,7 +139,7 @@ make test-func TEST=ztunnel-cross-node
 ## Troubleshooting
 
 - Check inter-node ping: `ping <other-node-ip>`
-- Check Calico routes: `ip route | grep 192.168`
+- Check pod CIDR routes: `ip route | grep 192.168`
 - Check ztunnel logs: `kubectl logs -n istio-system -l app=ztunnel | grep HBONE`
 - Check firewall: port 15008 must be open between nodes
 - Check ztunnel certs: `istioctl ztunnel-config certificates`

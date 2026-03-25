@@ -83,7 +83,7 @@ iptables TPROXY → ztunnel:15001 (worker)
     │ HTTP/2 CONNECT
     ▼
 TCP: 10.136.11.5 → 10.136.0.65:15008 (encrypted, over eno1)
-    │ Calico BGP route: 192.168.93.192/26 via 10.136.0.65
+    │ Host route to pod CIDR: 192.168.93.192/26 via 10.136.0.65 (Cilium flat)
     ▼
 ztunnel:15008 (CP) receives HBONE
     │ TLS terminate, verify SPIFFE identity
@@ -143,5 +143,5 @@ DURATION=30s CONCURRENCY=64 make bench-two-node
 - Run `make setup-two-node` if pods not found
 - Check placement: `make verify-two-node`
 - Check inter-node connectivity: `ping <other-node-ip>`
-- Check Calico routes: `ip route | grep 192.168`
+- Check pod CIDR routes: `ip route | grep 192.168`
 - Check ztunnel: `kubectl logs -n istio-system -l app=ztunnel | grep HBONE`

@@ -32,13 +32,11 @@
 #   export HTTPS_PROXY="$HTTP_PROXY"
 # Or in config/local.sh: CONTAINERD_HTTP_PROXY="http://dcproxy.simulprod.com:3128"
 
-# Bare metal (when using make create-baremetal)
-# CNI_PROVIDER="calico"       # calico (default) | cilium
-# CILIUM_VERSION="1.16.0"    # When CNI_PROVIDER=cilium
-# CILIUM_FLAT_NETWORK="true" # Cilium: flat network (tunnel=disabled, direct routing). Default: true
-# CILIUM_NATIVE_ROUTING_CIDR="192.168.0.0/16"  # Pod CIDR for direct routing. Default: POD_NETWORK_CIDR or 192.168.0.0/16
+# Bare metal (when using make create-baremetal) — CNI is Cilium only (flat network)
+# CILIUM_VERSION="1.16.0"
+# CILIUM_FLAT_NETWORK="true" # tunnel=disabled + direct routing. Default: true
+# CILIUM_NATIVE_ROUTING_CIDR="192.168.0.0/16"  # Must match POD_NETWORK_CIDR for flat routing
 # K8S_VERSION="1.30.0"
 # POD_NETWORK_CIDR="192.168.0.0/16"
-# CALICO_VERSION="v3.28.0"
 # CRI_SOCKET="unix:///var/run/containerd/containerd.sock"
 # CONTROL_PLANE_ENDPOINT=""  # For HA: "ip-or-hostname:6443"

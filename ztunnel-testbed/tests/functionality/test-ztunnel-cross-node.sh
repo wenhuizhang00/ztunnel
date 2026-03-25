@@ -17,7 +17,7 @@
 #   - HBONE tunnel establishment between ztunnel instances
 #   - Network connectivity between nodes (firewall, MTU)
 #   - Certificate exchange between ztunnel instances
-#   - Calico/CNI cross-node pod routing
+#   - Cilium/CNI cross-node pod routing (flat network)
 #
 # What it checks:
 #   1. curl-client-node1 is on the control-plane

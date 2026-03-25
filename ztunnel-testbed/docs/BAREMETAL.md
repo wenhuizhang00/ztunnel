@@ -77,7 +77,7 @@ sudo kubeadm reset -f
 The script will:
 - Run `kubeadm init`
 - Configure kubeconfig
-- Install Calico or Cilium CNI
+- Install Cilium CNI (flat network)
 - Print the worker join command
 
 ### 2. Run on worker nodes
@@ -141,15 +141,15 @@ The script configures containerd's systemd drop-in and restarts it when `HTTP_PR
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CNI_PROVIDER` | CNI: calico or cilium | calico |
 | `K8S_VERSION` | Kubernetes version | 1.30.0 |
-| `POD_NETWORK_CIDR` | Pod network CIDR | 192.168.0.0/16 |
-| `CALICO_VERSION` | Calico version | v3.28.0 |
-| `CILIUM_VERSION` | Cilium version (when CNI_PROVIDER=cilium) | 1.16.0 |
+| `POD_NETWORK_CIDR` | Pod network CIDR (kubeadm + Cilium native routing) | 192.168.0.0/16 |
+| `CILIUM_VERSION` | Cilium version | 1.16.0 |
+| `CILIUM_FLAT_NETWORK` | `tunnel=disabled` + direct routing | true |
+| `CILIUM_NATIVE_ROUTING_CIDR` | Pod CIDR for flat routing | same as POD_NETWORK_CIDR |
 | `CRI_SOCKET` | Container runtime socket | unix:///var/run/containerd/containerd.sock |
 | `CONTROL_PLANE_ENDPOINT` | API endpoint for HA | empty (single-node) |
 
-Cilium uses the Cilium CLI (no Helm). Installed with Istio ambient-compatible settings (cni.exclusive=false, socketLB.hostNamespaceOnly=true).
+Cilium uses the Cilium CLI (no Helm). Installed with Istio ambient-compatible settings (`cni.exclusive=false`, `socketLB.hostNamespaceOnly=true`) and flat networking (`tunnel=disabled`, `ipv4NativeRoutingCIDR`).
 
 Override in `config/local.sh` or export before running scripts.
 
@@ -163,14 +163,3 @@ make deploy     # Deploy sample apps (grimlock, grimlock-baseline)
 make test-func
 ```
 
-## Calico + Istio ambient (bpfConnectTimeLoadBalancing)
-
-If `make install` times out on ztunnel with the warning `bpfConnectTimeLoadBalancing=TCP must be Disabled`, apply the FelixConfiguration before or after install:
-
-```bash
-kubectl apply -f manifests/cni/calico-felix-istio-ambient.yaml
-kubectl rollout restart daemonset/calico-node -n calico-system
-kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s
-```
-
-New clusters created with this testbed include this config in `calico-custom-resources.yaml`.

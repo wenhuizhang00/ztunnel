@@ -5,7 +5,7 @@ A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kube
 ## Features
 
 - **Kubernetes**: Existing cluster or bare metal (kubeadm, single-node or multi-node)
-- **CNI**: Calico (default) or Cilium (no Helm, Cilium CLI)
+- **CNI**: Cilium only (Cilium CLI, flat network: direct routing, no overlay)
 - **Istio ambient**: Installed via `istioctl`
 - **Gateway API CRDs**: For traffic routing
 - **Sample apps**: http-echo + curl-client in `grimlock` (ambient) and `grimlock-baseline` (non-ambient)
@@ -32,11 +32,8 @@ A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kube
 │  │    • coredns × 2             (cluster DNS, 10.96.0.10)               │ │
 │  │    • kube-proxy              (iptables rules for Services)           │ │
 │  │                                                                        │ │
-│  │  CNI pods (calico-system):                                            │ │
-│  │    • calico-node             (BGP routing, network policy)           │ │
-│  │    • calico-typha            (datastore proxy)                       │ │
-│  │    • calico-kube-controllers (Calico reconciliation)                 │ │
-│  │    • calico-apiserver        (Calico API)                            │ │
+│  │  CNI (kube-system):                                                   │ │
+│  │    • cilium                 (DaemonSet, eBPF datapath, flat routing)  │ │
 │  │                                                                        │ │
 │  │  Istio pods (istio-system):                                           │ │
 │  │    • istiod                  (control plane: xDS, certs, discovery)  │ │
@@ -60,8 +57,8 @@ A production-oriented testbed for **Istio ambient mode** and **ztunnel** on Kube
 │                                                                             │
 │  ┌─ Worker node (<worker-ip>) ────────────────────────────────────────────┐ │
 │  │                                                                        │ │
-│  │  CNI pods:                                                            │ │
-│  │    • calico-node             (BGP routing on this node)              │ │
+│  │  CNI:                                                                 │ │
+│  │    • cilium                 (same DaemonSet, one pod per node)        │ │
 │  │                                                                        │ │
 │  │  Istio pods:                                                          │ │
 │  │    • ztunnel                 (L4 proxy for this node's pods)         │ │
@@ -86,12 +83,11 @@ Layer 3: ztunnel HBONE (encrypted)
   │  (transparent to applications, provides mTLS + L4 policy)       │
   └──────────────────────────────────────────────────────────────────┘
 
-Layer 2: Calico pod network (flat routing, no VXLAN)
+Layer 2: Cilium pod network (flat routing, no overlay)
   ┌──────────────────────────────────────────────────────────────────┐
-  │  Pod CIDR: 192.168.0.0/16                                       │
-  │  Each node gets a /26 block (e.g., 192.168.247.64/26)          │
-  │  Cross-node: BGP advertises pod routes between nodes            │
-  │  No overlay (encapsulation: None) — direct L3 routing           │
+  │  Pod CIDR: 192.168.0.0/16 (matches kubeadm + ipv4NativeRoutingCIDR) │
+  │  tunnel=disabled — pod traffic uses direct routing between nodes │
+  │  Nodes must reach each other's pod subnets (L3 underlay routes)  │
   └──────────────────────────────────────────────────────────────────┘
 
 Layer 1: Node network (physical/underlay)
@@ -111,7 +107,7 @@ Step 1: Application sends request
   fortio-client-wk pod (192.168.x.y) → HTTP to fortio-server-cp:8080
 
 Step 2: istio-cni-node redirects to ztunnel (on worker)
-  • iptables TPROXY rule (Calico) or eBPF tc hook (Cilium)
+  • eBPF tc hook (Cilium) + istio-cni iptables/TPROXY for ambient redirect
   • Outbound TCP from ambient pod → ztunnel:15001
   • This is transparent — the app doesn't know about ztunnel
 
@@ -137,10 +133,10 @@ Step 6: Pod receives the request
   • fortio-server-cp pod receives the original HTTP request
   • Responds normally; response takes the reverse path
 
-Network path (Layer 2, Calico flat routing):
-  worker eth0 → BGP-learned route → control-plane eth0
-  No VXLAN encapsulation, no overlay headers
-  Pod IPs are directly routable between nodes via BGP
+Network path (Layer 2, Cilium flat routing):
+  worker eth0 → host routing to pod CIDR → control-plane eth0
+  No VXLAN/Geneve overlay (tunnel disabled)
+  Pod IPs are directly routable when the underlay has routes to each node's pod range
 ```
 
 ### Namespace comparison
@@ -148,10 +144,9 @@ Network path (Layer 2, Calico flat routing):
 | Namespace | Ambient | Traffic path | Purpose |
 |-----------|---------|-------------|---------|
 | `grimlock` | Yes (`istio.io/dataplane-mode=ambient`) | pod → ztunnel → HBONE mTLS → ztunnel → pod | Mesh traffic with encryption |
-| `grimlock-baseline` | No (no label) | pod → pod (direct, Calico routing only) | Baseline comparison, no mesh |
+| `grimlock-baseline` | No (no label) | pod → pod (direct, CNI routing only) | Baseline comparison, no mesh |
 | `istio-system` | N/A | Host network for ztunnel, istiod | Istio control + data plane |
-| `calico-system` | N/A | Host network for calico-node | CNI networking |
-| `kube-system` | N/A | Host network | Kubernetes system components |
+| `kube-system` | N/A | cilium, CoreDNS, kube-proxy, etc. | Kubernetes + CNI |
 
 ### Pod reference
 
@@ -160,7 +155,7 @@ Network path (Layer 2, Calico flat routing):
 | **istiod** | istio-system | control-plane | Istio control plane: pushes config/certs to ztunnel |
 | **ztunnel** | istio-system | every node (DaemonSet) | L4 mTLS proxy, HBONE tunnels |
 | **istio-cni-node** | istio-system | every node (DaemonSet) | Configures iptables/eBPF to redirect ambient pod traffic to ztunnel |
-| **calico-node** | calico-system | every node (DaemonSet) | BGP routing, network policy |
+| **cilium** | kube-system | every node (DaemonSet) | CNI: eBPF datapath, flat routing |
 | **http-echo** | grimlock | any | Test HTTP server (returns "hello-from-pod") |
 | **curl-client** | grimlock | any | Test client (curl available for kubectl exec) |
 | **fortio-server** | grimlock | any | Performance test server (fortio server mode) |
@@ -186,25 +181,16 @@ kubectl get pods -n grimlock -o wide
 kubectl get pods -n grimlock -l test=two-node -o wide
 ```
 
-#### 2. Verify Calico flat routing (no VXLAN)
+#### 2. Verify Cilium flat routing (no overlay)
 
 ```bash
-# Confirm no vxlan.calico interface (should return nothing)
-ip link show | grep vxlan
+# Cilium status (should show tunnel disabled / direct routing)
+cilium status 2>/dev/null || kubectl -n kube-system exec ds/cilium -- cilium status 2>/dev/null || true
 
-# Confirm Calico is using direct routing (BGP)
-kubectl get ippool default-ipv4-ippool -o yaml | grep encapsulation
-# Should show: encapsulation: None
+# ConfigMap: tunnel should be disabled for flat network
+kubectl get configmap cilium-config -n kube-system -o yaml | grep -E 'tunnel|native-routing' || true
 
-# Check BGP peer status (Calico uses BGP for flat routing)
-kubectl exec -n calico-system -l k8s-app=calico-node -- calico-node -birdcl show protocols 2>/dev/null || \
-  kubectl exec -n calico-system -l k8s-app=calico-node -- birdcl show protocols 2>/dev/null || true
-
-# Verify pod routes are directly routable between nodes
-# On the control-plane, check route to worker's pod subnet:
-ip route | grep 192.168
-
-# On the worker, check route to control-plane's pod subnet:
+# Pod routes between nodes (underlay must reach remote pod CIDRs)
 ip route | grep 192.168
 ```
 
@@ -458,8 +444,7 @@ When a pod is in an ambient namespace (`istio.io/dataplane-mode=ambient`), the I
 │  2. istio-cni + iptables/eBPF redirects the packet to ztunnel            │
 │     ┌──────────────────────────────────────────────────────────┐         │
 │     │ istio-cni-node (DaemonSet) configures:                   │         │
-│     │  • iptables TPROXY rules (Calico/default CNI), OR       │         │
-│     │  • eBPF tc programs (Cilium CNI)                        │         │
+│     │  • eBPF tc programs (Cilium) + istio-cni redirect     │         │
 │     │ All outbound TCP from ambient pods → ztunnel:15001      │         │
 │     │ All inbound TCP to ambient pods → ztunnel:15008         │         │
 │     └──────────────────────────────────────────────────────────┘         │
@@ -516,18 +501,16 @@ HBONE (HTTP-Based Overlay Network Encapsulation) is the tunneling protocol used 
 4. **Identity**: Each workload has a SPIFFE identity (e.g., `spiffe://cluster.local/ns/grimlock/sa/default`)
 5. **Connection reuse**: Multiple L4 connections between pods on the same node pair share a single HBONE tunnel
 
-#### Traffic interception: iptables vs eBPF
+#### Traffic interception (Cilium + Istio ambient)
 
-How traffic gets redirected from pods to ztunnel depends on the CNI:
-
-| CNI | Interception method | How it works |
-|-----|-------------------|--------------|
-| **Calico** (default) | iptables TPROXY | `istio-cni-node` adds iptables rules in the pod's network namespace. Outbound TCP → TPROXY to ztunnel:15001. Inbound TCP → TPROXY to ztunnel:15008. |
-| **Cilium** | eBPF tc programs | `istio-cni-node` attaches eBPF programs to the pod's veth interface. More efficient than iptables; no conntrack overhead. Requires `cni.exclusive=false` in Cilium config. |
+| Component | Role |
+|-----------|------|
+| **Cilium** | Pod networking with eBPF; installed with `cni.exclusive=false` for Istio CNI chaining |
+| **istio-cni-node** | Redirects ambient pod TCP to ztunnel (:15001 / :15008) |
 
 The testbed scripts handle this automatically:
 
-- `create-cluster-baremetal.sh` installs Calico (default) or Cilium (`CNI_PROVIDER=cilium`)
+- `create-cluster-baremetal.sh` installs Cilium (flat network: `tunnel=disabled`, `ipv4NativeRoutingCIDR`)
 - `install-istio.sh` installs Istio ambient with `istio-cni-node` DaemonSet
 - `istio-cni-node` detects the CNI and configures the appropriate interception rules
 - No manual iptables or eBPF configuration is needed
@@ -536,7 +519,7 @@ The testbed scripts handle this automatically:
 
 | Script | What it does |
 |--------|-------------|
-| `create-cluster-baremetal.sh` | Creates k8s cluster with kubeadm, installs Calico/Cilium CNI, configures containerd, sets up kubeconfig |
+| `create-cluster-baremetal.sh` | Creates k8s cluster with kubeadm, installs Cilium (flat), configures containerd, sets up kubeconfig |
 | `install-istio.sh` | Downloads istioctl, installs Gateway API CRDs, runs `istioctl install --set profile=ambient` which deploys Istiod + ztunnel DaemonSet + istio-cni-node DaemonSet |
 | `deploy-sample-apps.sh` | Creates grimlock namespace with `istio.io/dataplane-mode=ambient` label (triggers ztunnel interception), deploys test pods |
 | `setup-two-node-test.sh` | Pins fortio-server-cp to control-plane node and fortio-client-wk to worker node using `nodeName` scheduling |
@@ -676,23 +659,17 @@ IMAGE_REGISTRY="localhost/ztunnel-testbed"
 
 Images: `images/http-echo`, `images/curl-client`, `images/fortio` (Dockerfiles included).
 
-## Cilium CNI
+## Cilium CNI (default for bare metal)
 
-Install Cilium on an existing cluster (Istio ambient compatible, no Helm):
+`make create-baremetal` installs Cilium with **flat network**: `tunnel=disabled`, `ipv4NativeRoutingCIDR` from `POD_NETWORK_CIDR`. Override in `config/local.sh`: `CILIUM_FLAT_NETWORK=false` for tunnel mode, or `CILIUM_NATIVE_ROUTING_CIDR` if your pod CIDR differs.
+
+Install or reinstall Cilium on an existing cluster (no Helm):
 
 ```bash
 make install-cilium
 ```
 
-For bare metal with Cilium instead of Calico:
-
-```bash
-CNI_PROVIDER=cilium make create-baremetal
-```
-
-Cilium uses **flat network** (direct routing, no VXLAN) by default: `tunnel=disabled`, `ipv4NativeRoutingCIDR` from `POD_NETWORK_CIDR`. Override in `config/local.sh`: `CILIUM_FLAT_NETWORK=false` for tunnel mode, or `CILIUM_NATIVE_ROUTING_CIDR="10.0.0.0/8"` for a custom range.
-
-Remove existing CNI before installing Cilium.
+Remove any other CNI before installing Cilium on a cluster that did not use this testbed.
 
 ## Directory Structure
 
@@ -723,8 +700,7 @@ ztunnel-testbed/
 │   │   └── http-echo-baseline.yaml.template
 │   ├── performance/
 │   │   └── fortio-client.yaml.template
-│   └── cni/
-│       └── calico-custom-resources.yaml
+│   └── cni/                 # Cilium is installed by CLI (no manifests here)
 ├── scripts/
 │   ├── common.sh
 │   ├── create-cluster.sh
@@ -786,9 +762,9 @@ KUBE_CONTEXT="grimlock-cell"   # Default; override if your context has a differe
 # Istio platform (GKE, EKS, k3d, minikube)
 ISTIO_PLATFORM="gke"
 
-# Bare metal
-CNI_PROVIDER="cilium"                  # calico (default) | cilium
+# Bare metal (Cilium flat network)
 CILIUM_VERSION="1.16.0"
+# CILIUM_NATIVE_ROUTING_CIDR="192.168.0.0/16"  # match POD_NETWORK_CIDR
 
 # Multi-node (auto-join workers via SSH)
 WORKER_NODES="<worker-ip>"            # comma-separated worker IPs
@@ -1052,33 +1028,18 @@ sudo systemctl restart containerd
 kubectl get nodes
 ```
 
-### Ztunnel timeout / "resources not ready after 5m0s" (Calico)
+### Ztunnel timeout / "resources not ready after 5m0s"
 
-If `make install` fails with:
-
-```
-❗ detected Calico CNI with 'bpfConnectTimeLoadBalancing=TCP'; this must be set to 'bpfConnectTimeLoadBalancing=Disabled'
-✘ Ztunnel encountered an error: failed to wait for resource: resources not ready after 5m0s
-```
-
-or ztunnel shows `0/2 ready`, Calico's eBPF connect-time load balancing interferes with Istio ambient. Fix:
+If `make install` times out on ztunnel, check:
 
 ```bash
-# 1. Apply FelixConfiguration (disables connect-time load balancing)
-kubectl apply -f manifests/cni/calico-felix-istio-ambient.yaml
-
-# 2. Restart Calico so it picks up the new config
-kubectl rollout restart daemonset/calico-node -n calico-system
-
-# 3. Wait for Calico, then ztunnel should become ready
-kubectl rollout status daemonset/calico-node -n calico-system --timeout=120s
-kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s
-
-# 4. Deploy sample apps
-make deploy
+kubectl get pods -n istio-system -l app=ztunnel -o wide
+kubectl describe pod -n istio-system -l app=ztunnel
+kubectl logs -n istio-system -l app=ztunnel --tail=50
+kubectl get deployment istiod -n istio-system
 ```
 
-For **new clusters**, `calico-custom-resources.yaml` already includes this FelixConfiguration.
+Common causes: istiod not ready, image pull failures, or nodes not Ready. Ensure Cilium is healthy: `kubectl rollout status ds/cilium -n kube-system`.
 
 ### Performance test shows "FAILED" or no data
 
@@ -1094,7 +1055,7 @@ Scripts emit `[HH:MM:SS] [PHASE]` logs with duration for long-running steps:
 |-------|--------|------------------|----------------------|
 | KUBEADM | create-baremetal | 2-5 min | Image pull (registry.k8s.io), proxy |
 | WORKER | create-baremetal | 1-3 min per worker | SSH + prereqs install + join |
-| CILIUM / CALICO | create-baremetal | 1-3 min | CNI image pull, network |
+| CILIUM | create-baremetal | 1-3 min | CNI image pull, network |
 | ISTIOCTL | install-istio | 1-3 min | Download from GitHub |
 | ISTIO | install-istio | 2-5 min | Istio image pull |
 | ZTUNNEL | install-istio | 1-2 min | DaemonSet rollout |
