@@ -58,6 +58,17 @@ sudo systemctl enable --now containerd
 
 ## Create cluster
 
+**Important:** `make create-baremetal` / `create-cluster-baremetal.sh` must run **only on the control-plane** host (the machine that will run the API server). On workers, use `kubeadm join` (or `install-and-join-worker.sh`), not `kubeadm init`.
+
+If you see `invalid or incomplete external CA` / `apiserver.key: no such file`, you are usually on the wrong node or have stale `/etc/kubernetes/pki`. On the machine where you intend to init:
+
+```bash
+sudo kubeadm reset -f
+sudo rm -rf /etc/kubernetes/pki /etc/kubernetes/manifests
+```
+
+Then run `make create-baremetal` again **on the control-plane**. The script also auto-cleans incomplete PKI when `admin.conf` is missing.
+
 ### 1. Run on control-plane node
 
 Copy this repo to the control-plane node or clone via git, then:

@@ -35,6 +35,7 @@ log_step_ok() {
 }
 
 log_info "Creating Kubernetes cluster on bare metal (kubeadm, no k3s)"
+log_info "Run this script only on the control-plane node. Workers join with: kubeadm join ... (see script output)."
 
 # --- Dependency checks ---
 missing=()
@@ -152,6 +153,18 @@ if [[ -f /etc/kubernetes/admin.conf ]] || [[ -f /etc/kubernetes/manifests/kube-a
   sudo rm -rf /etc/cni/net.d/* 2>/dev/null || true
   sleep 5
   log_ok "Reset complete. Proceeding with fresh init."
+fi
+
+# Stale or partial /etc/kubernetes/pki (e.g. interrupted init, or files on a worker) causes:
+#   invalid or incomplete external CA ... apiserver.key: no such file or directory
+# With no admin.conf, remove incomplete PKI so kubeadm init can generate fresh certs.
+if [[ ! -f /etc/kubernetes/admin.conf ]] && [[ -d /etc/kubernetes/pki ]]; then
+  if [[ ! -f /etc/kubernetes/pki/apiserver.key ]] || [[ ! -f /etc/kubernetes/pki/apiserver.crt ]]; then
+    log_warn "Incomplete /etc/kubernetes/pki (missing apiserver key/cert). Cleaning for fresh init..."
+    sudo kubeadm reset -f 2>/dev/null || true
+    sudo rm -rf /etc/kubernetes/pki /etc/kubernetes/manifests 2>/dev/null || true
+    log_ok "PKI cleaned"
+  fi
 fi
 
 # Ensure CNI config directory exists before kubelet/containerd start watching it
